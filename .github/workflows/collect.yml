@@ -4,7 +4,7 @@ name: collect
 # Snapshots are committed to the `data` branch so the main branch stays small.
 on:
   schedule:
-    - cron: "37 * * * *"
+    - cron: "35 * * * *"
   workflow_dispatch:
 
 permissions:

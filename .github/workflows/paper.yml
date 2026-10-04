@@ -5,7 +5,7 @@ name: paper-trade
 # the backtest. The ledger (ledger/paper.db) is committed back to the repo.
 on:
   schedule:
-    - cron: "7 * * * *"
+    - cron: "5 * * * *"
   workflow_dispatch:
 
 permissions:

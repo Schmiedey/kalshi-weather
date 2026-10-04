@@ -140,12 +140,12 @@ python -m kalshi_weather report      # per-variant results; "edge vs market" is 
 
 Two workflows run on GitHub's servers, free on a public repo:
 
-- `paper.yml` (every hour at :07): settles finished trades, runs each longshot variant in
+- `paper.yml` (every hour at :05): settles finished trades, runs each longshot variant in
   the cities where it is currently that variant's local hour, posts and checks maker
   orders, places Polymarket paper trades, updates the brain, updates the ETF paper portfolio once a day, commits the
   ledger to `ledger/paper.db`, and rebuilds the dashboard on GitHub Pages
   (https://schmiedey.github.io/kalshi-weather/).
-- `collect.yml` (every hour at :37): saves prices for every open Kalshi daily temperature
+- `collect.yml` (every hour at :35): saves prices for every open Kalshi daily temperature
   market to the `data` branch, building a private price history.
 
 GitHub can start scheduled runs late when it is busy; a run that slips past the hour

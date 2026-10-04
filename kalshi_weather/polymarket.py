@@ -108,7 +108,7 @@ def due_events(gamma, now: datetime, hours_before: int = 24, early_min: int = 40
                late_min: int = 65) -> list[dict]:
     """Open temperature events ending about `hours_before` hours from now. The window reaches
     `late_min` back so a scheduled run that GitHub starts up to an hour late still trades;
-    has_ticker stops repeats. (All of them end at 12:00 UTC, so the hourly :07 run catches each once.)"""
+    has_ticker stops repeats. (All of them end at 12:00 UTC, so the hourly :05 run catches each once.)"""
     from datetime import timedelta
     mid = now + timedelta(hours=hours_before)
     lo, hi = mid - timedelta(minutes=late_min), mid + timedelta(minutes=early_min)
