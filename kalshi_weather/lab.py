@@ -7,10 +7,11 @@ development runs end before them, and `final_exam` runs a strategy on them exact
 from __future__ import annotations
 
 import json
+import math
 import os
 from datetime import date, datetime, timedelta, timezone
 
-from .longshot import LongshotConfig, backtest_longshot, collect_quotes, summarize
+from .longshot import LongshotConfig, backtest_longshot, collect_quotes, quote_from_candles, summarize
 
 REGISTRY = "lab/experiments.jsonl"
 HOLDOUT_DAYS = 30
@@ -72,3 +73,35 @@ def final_exam(name: str, run, path: str = REGISTRY) -> dict:
     if any(e.get("name") == name and e.get("period") == "holdout" for e in load(path)):
         raise RuntimeError(f"{name} already took its final exam; the holdout is spent for it")
     return register({"name": name, "period": "holdout"} | run(), path)
+
+
+def sample_by_date(markets: list, cap: int) -> list:
+    """Every k-th close date, k chosen from the market count alone, so at most about `cap` markets."""
+    dates = sorted({(m.close_time or "")[:10] for m in markets})
+    if len(markets) <= cap or not dates:
+        return list(markets)
+    per_day = len(markets) / len(dates)
+    k = max(1, math.ceil(len(dates) * per_day / cap))
+    keep = set(dates[::k])
+    return [m for m in markets if (m.close_time or "")[:10] in keep]
+
+
+def xmarket_quotes(kalshi, series: str, start: date, end: date, hours_before: int = 6,
+                   cap: int = 400) -> list[dict]:
+    """Quote (YES bid/ask) `hours_before` each market's close, for any Kalshi series.
+
+    Rows match backtest_longshot's input: city (= series), date, event, ticker, bid, ask, result.
+    """
+    lo = int(datetime(start.year, start.month, start.day, tzinfo=timezone.utc).timestamp())
+    hi = int(datetime(end.year, end.month, end.day, tzinfo=timezone.utc).timestamp()) + 86400
+    ms = [m for m in kalshi.settled_markets(series, lo, hi, cache=True)
+          if m.result in ("yes", "no") and m.close_time]
+    rows = []
+    for m in sample_by_date(ms, cap):
+        close = int(datetime.fromisoformat(m.close_time.replace("Z", "+00:00")).timestamp())
+        ts = close - hours_before * 3600
+        q = quote_from_candles(kalshi.candles(series, m.ticker, ts - 4 * 3600, ts, close_time=m.close_time), ts)
+        bid, ask = q
+        rows.append({"city": series, "date": m.close_time[:10], "event": m.event_ticker,
+                     "ticker": m.ticker, "bid": bid, "ask": ask, "result": m.result})
+    return rows

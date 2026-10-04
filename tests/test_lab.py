@@ -1,5 +1,5 @@
 """Lab: judging, registry, single-use holdout."""
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 
@@ -35,3 +35,27 @@ def test_registry_and_single_final_exam(tmp_path):
     assert e["id"] == 2 and [x["name"] for x in load(path)] == ["a", "b"]
     with pytest.raises(RuntimeError):
         final_exam("b", lambda: {"passed": True}, path)
+
+
+def test_xmarket_quotes_and_sampling():
+    from kalshi_weather.kalshi import Bracket
+    from kalshi_weather.lab import sample_by_date, xmarket_quotes
+    ms = [Bracket(f"T{d}-{i}", f"E{d}", None, None, None, "no", f"2026-09-{d:02d}T20:00:00Z", None, None)
+          for d in range(1, 31) for i in range(10)]
+    s = sample_by_date(ms, 100)
+    assert len(s) <= 100 and len({m.close_time for m in s}) == len(s) // 10    # whole days kept
+    assert sample_by_date(ms[:50], 100) == ms[:50]
+
+    class K:
+        def settled_markets(self, series, lo, hi, cache=False):
+            return [Bracket("A", "E", None, None, None, "no", "2026-09-02T20:00:00Z", None, None),
+                    Bracket("B", "E", None, None, None, None, "2026-09-02T20:00:00Z", None, None)]
+
+        def candles(self, series, ticker, a, b, close_time=None):
+            self.window = (a, b)
+            return [{"ts": b - 3600, "yes_bid": 0.02, "yes_ask": 0.05}]
+    k = K()
+    rows = xmarket_quotes(k, "S", date(2026, 9, 1), date(2026, 9, 30), hours_before=6)
+    assert rows == [{"city": "S", "date": "2026-09-02", "event": "E", "ticker": "A", "bid": 0.02,
+                     "ask": 0.05, "result": "no"}]                                   # unsettled B skipped
+    assert k.window[1] == int(datetime(2026, 9, 2, 14, tzinfo=timezone.utc).timestamp())

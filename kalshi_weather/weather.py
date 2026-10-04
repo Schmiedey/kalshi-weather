@@ -58,7 +58,7 @@ class WeatherClient:
         return out
 
     def historical_highs(self, city: City, start: date, end: date, decision_hour: int = 15,
-                         latency_hours: int = 8) -> dict[date, float]:
+                         latency_hours: int = 8, by_model: bool = False) -> dict:
         """Forecast daily high per day, using only runs published by the decision time.
 
         The decision for day D is made at `decision_hour` local on D-1. Open-Meteo's
@@ -66,6 +66,7 @@ class WeatherClient:
         (or earlier), which is public about `latency_hours` later. So `previous_day1`
         is only usable for early hours of D; later hours (the afternoon peak) must
         use `previous_day2`, otherwise the backtest sees runs from after the decision.
+        With `by_model`, each day maps to the list of per-model highs instead of their mean.
         """
         v1, v2 = "temperature_2m_previous_day1", "temperature_2m_previous_day2"
         p = self._base(city) | {"hourly": f"{v1},{v2}", "start_date": start.isoformat(),
@@ -93,5 +94,5 @@ class WeatherClient:
         out = {}
         for d in sorted({d for m in per_model_day for d in m}):
             vals = [m[d] for m in per_model_day if d in m]
-            out[date.fromisoformat(d)] = sum(vals) / len(vals)
+            out[date.fromisoformat(d)] = vals if by_model else sum(vals) / len(vals)
         return out
