@@ -19,7 +19,7 @@ Status: [x] done · [~] in progress · [ ] not started
 - `collector.py`: hourly snapshot of all ~350 open daily temperature markets (best bid/ask, sizes, volume, open interest) from 48 list calls
 - Stored as compressed daily files on a separate `data` branch (main stays small)
 
-## Phase 3 - Lab  [ ]
+## Phase 3 - Lab  [~]
 - `lab.py`: run any strategy over any Kalshi daily series, walk-forward, fees included
 - Experiment registry (`lab/experiments.jsonl`) so results are judged against how many ideas were tried
 - Locked holdout: the most recent 30 days are only used for a strategy's final exam

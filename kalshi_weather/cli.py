@@ -62,6 +62,32 @@ def _backtest_longshot(kalshi, cities, days, hour, data_dir):
         print(f"\nSaved {data_dir}/longshot_trades.csv")
 
 
+def _lab(kalshi, a):
+    from .lab import judge, load, longshot_scan, register, windows
+    from .markets import MARKETS, ORIGINAL
+    if a.action == "list":
+        reg = load()
+        for e in reg:
+            print(f"#{e['id']:<3} {'PASS' if e.get('passed') else 'fail'}  {e['name']:<36} "
+                  f"{e.get('period', ''):<8} {e.get('result') or e.get('cents_per_contract', '')}")
+        print(f"\n{len(reg)} experiments; {sum(1 for e in reg if e.get('passed'))} passed")
+        return
+    ms = [m for m in MARKETS.values() if (a.kind == "all" or m.kind == a.kind)
+          and not (a.new_only and m.key in ORIGINAL)]
+    start, end = windows(date.fromisoformat(a.end))["all"]
+    trades, per = longshot_scan(kalshi, ms, start, end, a.hour)
+    verdict = judge(trades)
+    name = a.name or f"longshot_{a.hour}h_{a.kind}{'_new' if a.new_only else ''}"
+    entry = register({"name": name, "period": "all", "markets": [m.key for m in ms],
+                      "hour": a.hour, "passed": verdict["passed"],
+                      "result": {k: verdict.get(k) for k in ("trades", "losses", "cents_per_contract",
+                                                             "ci95_cents", "p_value", "halves_cents")},
+                      "per_market_cents": {k: v.get("cents_per_contract") for k, v in per.items()}})
+    print(json.dumps(entry["result"]))
+    print(f"{'PASS' if verdict['passed'] else 'FAIL'} (experiment #{entry['id']}, "
+          f"{len(load())} experiments on record)")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="kalshi_weather")
     ap.add_argument("--data", default="data", help="folder for db, cache, outputs")
@@ -92,6 +118,13 @@ def main(argv=None):
 
     sub.add_parser("settle", help="settle finished paper trades")
     sub.add_parser("report", help="paper trading results")
+    lb = sub.add_parser("lab", help="test strategies across markets; see the experiment registry")
+    lb.add_argument("action", choices=["scan", "list"])
+    lb.add_argument("--kind", choices=["high", "low", "all"], default="all")
+    lb.add_argument("--new-only", action="store_true", help="skip the 7 series the rule was built on")
+    lb.add_argument("--hour", type=int, default=17)
+    lb.add_argument("--end", default="2026-10-02", help="last event date (fixed so the cache is reused)")
+    lb.add_argument("--name", default=None, help="experiment name for the registry")
     co = sub.add_parser("collect", help="snapshot every open daily temperature market")
     co.add_argument("--root", default="store", help="folder holding archive/")
     br = sub.add_parser("brain", help="review strategies: edge estimates, status, sizing")
@@ -134,6 +167,10 @@ def main(argv=None):
         if t["model_brier"] is not None and t["market_brier"] is not None:
             verdict = "BEATS" if t["model_brier"] < t["market_brier"] else "does NOT beat"
             print(f"Model {verdict} the market on accuracy (lower Brier is better).")
+        return
+
+    if a.cmd == "lab":
+        _lab(kalshi, a)
         return
 
     if a.cmd == "collect":

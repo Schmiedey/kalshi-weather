@@ -80,6 +80,7 @@ def summarize(trades: list[dict], n_boot: int = 2000, seed: int = 0) -> dict:
         sample = [t for d in (rng.choice(days) for _ in days) for t in by_day[d]]
         per_contract.append(sum(t["pnl"] for t in sample) / sum(t["contracts"] for t in sample))
     per_contract.sort()
+    p_le_0 = sum(1 for x in per_contract if x <= 0) / n_boot
     daily = [sum(t["pnl"] for t in by_day[d]) for d in days]
     worst = min(daily)
     return {
@@ -88,6 +89,9 @@ def summarize(trades: list[dict], n_boot: int = 2000, seed: int = 0) -> dict:
         "cents_per_contract": round(100 * pnl / contracts, 3),
         "ci90_cents": (round(100 * per_contract[int(0.05 * n_boot)], 3),
                        round(100 * per_contract[int(0.95 * n_boot)], 3)),
+        "ci95_cents": (round(100 * per_contract[int(0.025 * n_boot)], 3),
+                       round(100 * per_contract[int(0.975 * n_boot)], 3)),
+        "p_value": round(p_le_0, 4),          # one-sided: share of resamples with edge <= 0
         "days": len(days), "worst_day": round(worst, 2),
         "losing_days": sum(1 for x in daily if x < 0),
     }
