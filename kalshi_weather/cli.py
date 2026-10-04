@@ -92,6 +92,9 @@ def main(argv=None):
 
     sub.add_parser("settle", help="settle finished paper trades")
     sub.add_parser("report", help="paper trading results")
+    db = sub.add_parser("dashboard", help="write an HTML dashboard of the paper ledger")
+    db.add_argument("--out", default="site/index.html")
+    db.add_argument("--repo-url", default="")
     a = ap.parse_args(argv)
 
     from .kalshi import KalshiClient
@@ -126,6 +129,12 @@ def main(argv=None):
         if t["model_brier"] is not None and t["market_brier"] is not None:
             verdict = "BEATS" if t["model_brier"] < t["market_brier"] else "does NOT beat"
             print(f"Model {verdict} the market on accuracy (lower Brier is better).")
+        return
+
+    if a.cmd == "dashboard":
+        from .dashboard import build
+        n = build(f"{a.data}/paper.db", a.out, a.repo_url)
+        print(f"Wrote {a.out} ({n} trades)")
         return
 
     from .ledger import Ledger

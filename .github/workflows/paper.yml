@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: ledger
@@ -19,6 +21,9 @@ jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -37,3 +42,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add ledger/paper.db
           git diff --cached --quiet || (git commit -m "Update paper ledger" && git pull --rebase && git push)
+      - name: Build dashboard
+        run: python -m kalshi_weather --data ledger dashboard --out site/index.html --repo-url "https://github.com/${{ github.repository }}"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
