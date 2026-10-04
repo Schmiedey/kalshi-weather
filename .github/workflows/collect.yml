@@ -37,8 +37,9 @@ jobs:
             cd store && git checkout --orphan data && git rm -rfq . && cd ..
           fi
       - run: python -m kalshi_weather collect --root store
+      - run: python -m kalshi_weather lip --root store || echo "LIP snapshot failed"
       - name: Save snapshot
         run: |
           cd store
-          git add archive
+          git add archive lip
           git commit -qm "Snapshot $(date -u +%Y-%m-%dT%H:%MZ)" && git push origin data

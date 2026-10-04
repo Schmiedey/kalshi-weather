@@ -108,7 +108,7 @@ def main(argv=None):
     pp.add_argument("--cities", default="all")
     pp.add_argument("--min-edge", type=float, default=StrategyConfig.min_edge)
     pp.add_argument("--prob", choices=["model", "blend"], default="model")
-    pp.add_argument("--strategy", choices=["model", "longshot", "maker", "poly"], default="model")
+    pp.add_argument("--strategy", choices=["model", "longshot", "maker", "poly", "lip"], default="model")
     pp.add_argument("--contracts", type=int, default=10)
     pp.add_argument("--variant", default="all", help="longshot variant name, or 'all'")
     pp.add_argument("--scheduled", action="store_true",
@@ -129,6 +129,9 @@ def main(argv=None):
     ef.add_argument("--backtest", action="store_true")
     co = sub.add_parser("collect", help="snapshot every open daily temperature market")
     co.add_argument("--root", default="store", help="folder holding archive/")
+    lp = sub.add_parser("lip", help="paper-track unclaimed Kalshi liquidity-incentive pools")
+    lp.add_argument("--root", default="store", help="folder holding lip/")
+    lp.add_argument("--report", action="store_true", help="summarize instead of snapshotting")
     br = sub.add_parser("brain", help="review strategies: edge estimates, status, sizing")
     br.add_argument("--alerts", default=None, help="write newly-stopped strategies to this file")
     br.add_argument("--revive", default=None, help="put a stopped strategy back into evaluation")
@@ -182,6 +185,17 @@ def main(argv=None):
         print(f"{len(rows)} markets -> {write(rows, a.root)}")
         return
 
+    if a.cmd == "lip":
+        from . import lip
+        if a.report:
+            print(json.dumps(lip.report(a.root), indent=1))
+            return
+        snap = lip.snapshot(KalshiClient(KALSHI_PROD))
+        est = sum(r["est_hour"] for r in snap["thin"]) * 24
+        print(f"{snap['programs']} programs, {len(snap['thin'])} thin, est ${est:,.0f}/day "
+              f"-> {lip.write(snap, a.root)}")
+        return
+
     if a.cmd == "dashboard":
         from .dashboard import build
         n = build(f"{a.data}/paper.db", a.out, a.repo_url, a.store)
@@ -210,6 +224,17 @@ def main(argv=None):
             print(f"{len(run_maker_paper(kalshi, ledger, todo, size))} resting order(s) posted")
         elif not size:
             print(f"{MAKER_STRATEGY}: stopped by the brain")
+        return
+
+    if a.cmd == "paper" and a.strategy == "lip":
+        from .lip import paper_summary, run_lip_paper
+        r = run_lip_paper(kalshi, ledger)
+        print(f"LIP paper: +${r['accrued']:.2f} rewards accrued, {r['fills']} fill(s), "
+              f"{r['closed']} closed, {r['placed']} placed")
+        for row in paper_summary(ledger.db):
+            print(f"  {row['strategy']}: {row['resting']} resting, capital ${row['capital']:,.0f}, "
+                  f"rewards ${row['rewards']:,.2f} (24h ${row['rewards_24h']:,.2f}), "
+                  f"{row['fills']} fills, fill P&L ${row['fill_pnl']:+,.2f}")
         return
 
     if a.cmd == "paper" and a.strategy == "poly":

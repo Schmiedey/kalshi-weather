@@ -312,6 +312,23 @@ An order only counts as filled if a real trade on Kalshi reaches its price befor
 unfilled orders expire and cost nothing.</p></div>"""
 
 
+def _lip_section(lip: list | None) -> str:
+    if not lip:
+        return ""
+    body = "".join(
+        f'<tr><td>{r["strategy"]}</td><td>{r["resting"]}</td><td>${r["capital"]:,.0f}</td>'
+        f'<td>${r["rewards_24h"]:,.2f}</td><td>${r["rewards"]:,.2f}</td><td>{r["fills"]}</td>'
+        f'<td class="{"pos" if r["fill_pnl"] >= 0 else "neg"}">${r["fill_pnl"]:+,.2f}</td></tr>' for r in lip)
+    return f"""<h2>Liquidity rewards (paper)</h2><div class="card"><table><thead><tr><th>Strategy</th>
+<th>Resting orders</th><th>Cash tied up</th><th>Rewards, last 24h</th><th>Rewards, total</th><th>Fills</th>
+<th>Settled fill P&amp;L</th></tr></thead><tbody>{body}</tbody></table>
+<p class="muted">Kalshi pays a reward pool to resting orders, but only while both sides of a market's book
+are deep enough. The thin side is usually a near-certain loser nobody bids for; <b>lip_1c</b> rests a
+1¢ bid there (about its fair value, at most $10 at risk per market). Rewards are estimated hourly from the
+live book under Kalshi's published scoring; fills come from real trades. Paper only: it cannot prove
+Kalshi would pay, and Kalshi can change the rules or revoke rewards at any time.</p></div>"""
+
+
 def _collector_section(c: dict | None, data_url: str = "") -> str:
     if not c:
         return ""
@@ -339,7 +356,7 @@ def _research_section(research: list[tuple[str, str, str]]) -> str:
 def render(rows: list[dict], now: datetime | None = None, repo_url: str = "",
            brain: list[dict] | None = None, etf: list[dict] | None = None,
            lab: list[dict] | None = None, collector: dict | None = None,
-           research: list | None = None) -> str:
+           research: list | None = None, lip: list | None = None) -> str:
     now = now or datetime.now(timezone.utc)
     stats = variant_stats(rows)
     names = STRATEGIES + sorted(n for n in stats if n not in STRATEGIES)
@@ -390,6 +407,7 @@ Main strategy: bet against brackets priced at 1–4¢ the day before. Fake money
     h.append(_pending_section(pending_stats(rows)))
     h.append(_brain_section(brain or []))
     h.append(_maker_section(maker_stats(rows)))
+    h.append(_lip_section(lip))
     recent = sorted((r for r in rows if r["status"] != "expired"), key=lambda r: r["opened_at"], reverse=True)[:25]
     h.append("""<h2>Recent trades</h2><div class="card"><table><thead><tr><th>Opened (UTC)</th>
 <th>Variant</th><th>City</th><th>Bracket</th><th>Side</th><th>Price</th><th>Qty</th><th>Status</th>
@@ -421,6 +439,12 @@ They show the best time of day to trade; real money would use one of them.</p>
     return "".join(h)
 
 
+def _lip_rows(db) -> list:
+    from .lip import paper_summary
+    rows = paper_summary(db)
+    return rows if any(r["resting"] or r["rewards"] or r["fills"] for r in rows) else []
+
+
 def build(ledger_path: str, out_path: str, repo_url: str = "", store: str | None = None) -> int:
     import os
     from .brain import Brain, p_best
@@ -442,5 +466,6 @@ def build(ledger_path: str, out_path: str, repo_url: str = "", store: str | None
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w") as f:
         f.write(render(rows, repo_url=repo_url, brain=brain, etf=etf, lab=load(),
-                       collector=collector_health(store) if store else None))
+                       collector=collector_health(store) if store else None,
+                       lip=_lip_rows(led.db)))
     return len(rows)

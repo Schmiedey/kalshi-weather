@@ -88,11 +88,8 @@ def event_date(event_ticker: str) -> date | None:
         return None
 
 
-def book_quotes(resp: dict) -> dict:
-    """Turn an orderbook response into best YES bid/ask (dollars) and size.
-
-    Kalshi books only list bids. A YES ask is the complement of the best NO bid.
-    """
+def book_levels(resp: dict) -> tuple[list, list]:
+    """YES and NO bids from an orderbook response as [(price_dollars, size)]."""
     ob = resp.get("orderbook_fp") or resp.get("orderbook") or {}
 
     def levels(side):
@@ -102,7 +99,15 @@ def book_quotes(resp: dict) -> dict:
                 return [(float(p) * scale, float(q)) for p, q in lv]
         return []
 
-    yes, no = levels("yes"), levels("no")
+    return levels("yes"), levels("no")
+
+
+def book_quotes(resp: dict) -> dict:
+    """Turn an orderbook response into best YES bid/ask (dollars) and size.
+
+    Kalshi books only list bids. A YES ask is the complement of the best NO bid.
+    """
+    yes, no = book_levels(resp)
     best_yes = max(yes, default=None)
     best_no = max(no, default=None)
     return {
