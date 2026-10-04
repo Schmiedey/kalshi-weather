@@ -204,9 +204,99 @@ passed. Every test is kept, so a pass is read against how many ideas were tried.
     return "".join(h)
 
 
+# Every idea tested so far, in plain words: (idea, verdict, detail). Updated as lab results come in.
+RESEARCH = [
+    ("Weather forecast model (GFS, ECMWF, ICON)", "rejected",
+     "Kalshi prices were more accurate than the forecasts (Brier 0.106 vs 0.129)."),
+    ("Longshot: sell 1–4¢ brackets the day before", "paper trading",
+     "+0.5 to +1.1¢ per contract after fees over 180 days, 7 cities; positive in both halves."),
+    ("Maker longshot: post an order 1¢ better, wait for a fill", "paper trading",
+     "+2.15¢ per contract in development data; final exam +1.0¢ on 65 trades, too few to be sure."),
+    ("Forecast/market blend, favorites, bracket arbitrage", "rejected", "No edge after fees."),
+    ("Day-of trading with live station observations", "rejected",
+     "Brackets already ruled out by the weather never had buyers to sell to."),
+    ("Machine learning on market prices (calibration, boosting)", "rejected",
+     "Did not beat the market's own prices on the 7 original cities."),
+    ("Kalshi vs Polymarket arbitrage", "not possible",
+     "The two sites settle on different weather stations, so price gaps are not free money."),
+    ("Polymarket longshot", "pending", "Backtest running."),
+    ("Longshot on 41 more Kalshi temperature markets", "pending", "Price history downloading."),
+    ("ETF trend (hold only what is above its 10-month average)", "paper trading",
+     "2008–2026: 5.3% a year with an 11% worst drop, vs 6.3% and 31% for buy-and-hold."),
+]
+
+
+def maker_stats(rows: list[dict], strategy: str = "maker_5pm") -> dict:
+    m = [r for r in rows if r["strategy"] == strategy]
+    filled = sum(1 for r in m if r["status"] in ("open", "settled"))
+    expired = sum(1 for r in m if r["status"] == "expired")
+    return {"resting": sum(1 for r in m if r["status"] == "resting"), "filled": filled,
+            "expired": expired, "fill_rate": filled / (filled + expired) if filled + expired else None}
+
+
+def collector_health(root: str, now: datetime | None = None) -> dict | None:
+    """Hourly snapshots stored under `root`/archive, and a look inside the newest one."""
+    import glob
+    import gzip
+    import json
+    import os
+    files = sorted(glob.glob(os.path.join(root, "archive", "*", "*.jsonl.gz")))
+    if not files:
+        return None
+
+    def ts(p: str) -> datetime:
+        day = os.path.basename(os.path.dirname(p))
+        return datetime.strptime(day + os.path.basename(p)[:4], "%Y-%m-%d%H%M").replace(tzinfo=timezone.utc)
+
+    with gzip.open(files[-1], "rt") as f:
+        rows = [json.loads(line) for line in f]
+    last = ts(files[-1])
+    return {"snapshots": len(files), "days": len({os.path.dirname(p) for p in files}),
+            "first": ts(files[0]), "last": last,
+            "age_h": ((now or datetime.now(timezone.utc)) - last).total_seconds() / 3600,
+            "markets": len(rows),
+            "series": len({(r.get("event_ticker") or "").split("-")[0] for r in rows} - {""}),
+            "with_bid": sum(1 for r in rows if float(r.get("yes_bid_dollars") or 0) > 0)}
+
+
+def _maker_section(m: dict) -> str:
+    rate = "—" if m["fill_rate"] is None else f'{m["fill_rate"]:.0%}'
+    return f"""<h2>Maker orders (maker_5pm)</h2><div class="card"><table><thead><tr><th>Waiting for a fill</th>
+<th>Filled</th><th>Expired unfilled</th><th>Fill rate</th></tr></thead><tbody><tr><td>{m["resting"]}</td>
+<td>{m["filled"]}</td><td>{m["expired"]}</td><td>{rate}</td></tr></tbody></table>
+<p class="muted">Instead of paying the asking price, this strategy posts its own order 1¢ better and waits.
+An order only counts as filled if a real trade on Kalshi reaches its price before the market closes;
+unfilled orders expire and cost nothing.</p></div>"""
+
+
+def _collector_section(c: dict | None, data_url: str = "") -> str:
+    if not c:
+        return ""
+    fresh = "pos" if c["age_h"] < 3 else "neg"
+    link = f' · <a href="{_esc(data_url)}">raw data</a>' if data_url else ""
+    return f"""<h2>Data collector</h2><div class="card"><table><thead><tr><th>Snapshots</th><th>Days</th>
+<th>Last snapshot (UTC)</th><th>Markets in last</th><th>With a YES bid</th><th>Series</th></tr></thead><tbody>
+<tr><td>{c["snapshots"]:,}</td><td>{c["days"]}</td><td class="{fresh}">{c["last"].strftime("%Y-%m-%d %H:%M")}
+({c["age_h"]:.1f}h ago)</td><td>{c["markets"]}</td><td>{c["with_bid"]}</td><td>{c["series"]}</td></tr>
+</tbody></table><p class="muted">Every hour, prices for every open Kalshi daily temperature market are saved,
+since {c["first"].strftime("%Y-%m-%d")}. This builds a private history that future tests can use{link}.</p></div>"""
+
+
+def _research_section(research: list[tuple[str, str, str]]) -> str:
+    cls = {"paper trading": "pos", "rejected": "neg", "not possible": "neg"}
+    h = ["""<h2>What has been tested</h2><div class="card"><table><thead><tr><th>Idea</th><th>Verdict</th>
+<th style="text-align:left">Evidence</th></tr></thead><tbody>"""]
+    for idea, verdict, detail in research:
+        h.append(f'<tr><td>{_esc(idea)}</td><td class="{cls.get(verdict, "")}">{_esc(verdict)}</td>'
+                 f'<td style="text-align:left;white-space:normal">{_esc(detail)}</td></tr>')
+    h.append("</tbody></table></div>")
+    return "".join(h)
+
+
 def render(rows: list[dict], now: datetime | None = None, repo_url: str = "",
            brain: list[dict] | None = None, etf: list[dict] | None = None,
-           lab: list[dict] | None = None) -> str:
+           lab: list[dict] | None = None, collector: dict | None = None,
+           research: list | None = None) -> str:
     now = now or datetime.now(timezone.utc)
     stats = variant_stats(rows)
     names = STRATEGIES + sorted(n for n in stats if n not in STRATEGIES)
@@ -225,8 +315,8 @@ def render(rows: list[dict], now: datetime | None = None, repo_url: str = "",
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Kalshi Weather Paper Trading</title><style>{CSS}</style></head><body><main>
 <h1>Kalshi weather · paper trading</h1>
-<p class="sub">Longshot strategy: buy NO on high-temperature brackets whose YES trades at 1–4¢,
-the day before the event. Fake money, real Kalshi prices.</p>
+<p class="sub">A self-running research and paper-trading system for Kalshi daily temperature markets.
+Main strategy: bet against brackets priced at 1–4¢ the day before. Fake money, real prices.</p>
 <p class="muted">Updated {now.strftime('%Y-%m-%d %H:%M UTC')} · 10 contracts per trade</p>
 <div class="tiles">"""]
     for k, v in tiles:
@@ -255,6 +345,7 @@ the day before the event. Fake money, real Kalshi prices.</p>
     h.append("</tbody></table></div>")
 
     h.append(_brain_section(brain or []))
+    h.append(_maker_section(maker_stats(rows)))
     recent = sorted((r for r in rows if r["status"] != "expired"), key=lambda r: r["opened_at"], reverse=True)[:25]
     h.append("""<h2>Recent trades</h2><div class="card"><table><thead><tr><th>Opened (UTC)</th>
 <th>Variant</th><th>City</th><th>Bracket</th><th>Side</th><th>Price</th><th>Qty</th><th>Status</th>
@@ -270,7 +361,9 @@ the day before the event. Fake money, real Kalshi prices.</p>
     h.append("</tbody></table></div>")
 
     h.append(_etf_section(etf or []))
+    h.append(_research_section(RESEARCH if research is None else research))
     h.append(_lab_section(lab or []))
+    h.append(_collector_section(collector, repo_url + "/tree/data" if repo_url else ""))
     h.append(f"""<h2>How to read this</h2><div class="note">
 <p><b>Edge vs market</b> is P&amp;L minus what the market prices implied (the fees you would pay
 with zero edge). Above zero means the strategy beats the market; it's the number that matters.</p>
@@ -284,7 +377,7 @@ They show the best time of day to trade; real money would use one of them.</p>
     return "".join(h)
 
 
-def build(ledger_path: str, out_path: str, repo_url: str = "") -> int:
+def build(ledger_path: str, out_path: str, repo_url: str = "", store: str | None = None) -> int:
     import os
     from .brain import Brain, p_best
     from .lab import load
@@ -304,5 +397,6 @@ def build(ledger_path: str, out_path: str, repo_url: str = "") -> int:
         etf = []
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w") as f:
-        f.write(render(rows, repo_url=repo_url, brain=brain, etf=etf, lab=load()))
+        f.write(render(rows, repo_url=repo_url, brain=brain, etf=etf, lab=load(),
+                       collector=collector_health(store) if store else None))
     return len(rows)

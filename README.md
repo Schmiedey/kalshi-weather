@@ -138,16 +138,31 @@ python -m kalshi_weather report      # per-variant results; "edge vs market" is 
 
 ## Running it for free on GitHub Actions (laptop can be off)
 
-`.github/workflows/paper.yml` runs on GitHub's servers every hour. Each run settles
-finished trades, runs each longshot variant in the cities where it is currently
-that variant's local hour, and commits the ledger to `ledger/paper.db`. To see results,
-open the latest run's log in the Actions tab (the `report` step), or pull the
-repo and run `python -m kalshi_weather --data ledger report`.
+Two workflows run on GitHub's servers, free on a public repo:
 
-Cost: free on a public repo (hourly runs of under a minute; a private repo would
-use about 720 of the monthly free minutes). GitHub can start scheduled runs late
-when it is busy; a run that slips past the hour skips that variant for that city
-that day.
+- `paper.yml` (every hour at :07): settles finished trades, runs each longshot variant in
+  the cities where it is currently that variant's local hour, posts and checks maker
+  orders, updates the brain, updates the ETF paper portfolio once a day, commits the
+  ledger to `ledger/paper.db`, and rebuilds the dashboard on GitHub Pages
+  (https://schmiedey.github.io/kalshi-weather/).
+- `collect.yml` (every hour at :37): saves prices for every open Kalshi daily temperature
+  market to the `data` branch, building a private price history.
+
+GitHub can start scheduled runs late when it is busy; a run that slips past the hour
+skips that variant for that city that day.
+
+## The full system
+
+| Part | What it does |
+|---|---|
+| Strategies | `longshot_*`: buy NO on brackets with YES at 1-4c, the day before, at six times of day. `maker_5pm`: same idea, but posts an order 1c better and waits for a real trade to fill it. ETF trend: holds SPY/EFA/IEF/GLD/DBC only while above their 10-month average. |
+| Brain (`brain.py`) | For each strategy: a skeptical estimate of edge per contract (starts at 0 +/- 1c), P(edge > 0), and a kill switch (stops a strategy after 200 trades if P(edge > 0) < 10%, or on a large drawdown, and opens a GitHub issue). Sizes trades by quarter-Kelly and shifts size toward the strategy most likely to be best (Thompson sampling). |
+| Lab (`lab.py`) | Tests ideas walk-forward with fees. Every test is logged in `lab/experiments.jsonl`, and the last 30 days are locked for a one-time final exam. `python -m kalshi_weather lab list` shows them all. |
+| Models (`ml.py`) | Small scikit-learn models (logistic calibration, gradient boosting) on market prices, judged against the market's own Brier score. |
+| Fills (`mm.py`) | Uses Kalshi's public trade history to decide whether a resting order would have filled. |
+| Other venues | `polymarket.py` (longshot test on Polymarket), `etf.py` (free Yahoo prices). |
+| Data (`collector.py`) | The hourly market snapshots. |
+| Dashboard (`dashboard.py`) | Static HTML page: P&L, brain, maker orders, ETF, research results, lab, collector health. |
 
 ## How it works
 

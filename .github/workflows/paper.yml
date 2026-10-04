@@ -57,7 +57,10 @@ jobs:
           git add ledger/paper.db
           git diff --cached --quiet || (git commit -m "Update paper ledger" && git pull --rebase && git push)
       - name: Build dashboard
-        run: python -m kalshi_weather --data ledger dashboard --out site/index.html --repo-url "https://github.com/${{ github.repository }}"
+        run: |
+          if git fetch -q --depth 1 origin data; then git worktree add -q --detach store FETCH_HEAD; fi
+          python -m kalshi_weather --data ledger dashboard --out site/index.html --store store \
+            --repo-url "https://github.com/${{ github.repository }}"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

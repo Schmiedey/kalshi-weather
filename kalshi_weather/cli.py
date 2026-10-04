@@ -135,6 +135,7 @@ def main(argv=None):
     db = sub.add_parser("dashboard", help="write an HTML dashboard of the paper ledger")
     db.add_argument("--out", default="site/index.html")
     db.add_argument("--repo-url", default="")
+    db.add_argument("--store", default=None, help="data-branch checkout, for collector health")
     a = ap.parse_args(argv)
 
     from .kalshi import KalshiClient
@@ -183,7 +184,7 @@ def main(argv=None):
 
     if a.cmd == "dashboard":
         from .dashboard import build
-        n = build(f"{a.data}/paper.db", a.out, a.repo_url)
+        n = build(f"{a.data}/paper.db", a.out, a.repo_url, a.store)
         print(f"Wrote {a.out} ({n} trades)")
         return
 

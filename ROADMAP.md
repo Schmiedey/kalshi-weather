@@ -37,7 +37,7 @@ Status: [x] done · [~] in progress · [ ] not started
 
 ## Phase 6 - Other markets  [~]
 - Kalshi vs Polymarket scanner for matching temperature markets (logs gaps; resolution sources differ)
-- ETF trend-following (10-month average rule) on free Stooq prices, paper portfolio
+- ETF trend-following (10-month average rule) on free Yahoo Finance prices, paper portfolio
 
 ## Phase 7 - Allocation and dashboard  [x]
 - Thompson-sampling allocator across strategies
