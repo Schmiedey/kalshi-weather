@@ -26,7 +26,8 @@ def _ts(s: str) -> float:
     return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
 
 
-def trades_after(kalshi, ticker: str, close_time: str | None, after_ts: int) -> list[dict]:
+def trades_after(kalshi, ticker: str, close_time: str | None, after_ts: int,
+                 cache: bool = True) -> list[dict]:
     """All public trades on `ticker` after `after_ts` (cached; historical endpoint if archived)."""
     cutoff = kalshi.historical_cutoff() if close_time else None
     path = "/historical/trades" if (cutoff and close_time < cutoff) else "/markets/trades"
@@ -35,7 +36,7 @@ def trades_after(kalshi, ticker: str, close_time: str | None, after_ts: int) -> 
         params = {"ticker": ticker, "min_ts": after_ts, "limit": 1000}
         if cursor:
             params["cursor"] = cursor
-        data = kalshi._get(path, params, cache=True, allow_404=True) or {}
+        data = kalshi._get(path, params, cache=cache, allow_404=True) or {}
         out += data.get("trades", [])
         cursor = data.get("cursor")
         if not cursor or not data.get("trades"):
@@ -90,3 +91,60 @@ def maker_backtest(kalshi, markets, start, end, hour: int = 17, size: int = 10,
                            "pnl": round(q * ((1 - no_price) if won else -no_price) - fee, 4)})
         log(f"[{m.key}] orders {stats['orders']} filled {stats['filled']}")
     return trades, dict(stats)
+
+
+MAKER_STRATEGY = "maker_5pm"
+MAKER_HOUR = 17
+
+
+def run_maker_paper(kalshi, ledger, markets, size: int = 10, now=None, log=print) -> list:
+    """Post virtual resting NO orders (YES offers 1c under the ask) on tomorrow's longshots."""
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+    from .kalshi import event_date
+    from .strategy import Signal
+    now = now or datetime.now(timezone.utc)
+    posted = []
+    for m in markets:
+        target = now.astimezone(ZoneInfo(m.tz)).date() + timedelta(days=1)
+        for b in kalshi.markets(m.series, status="open"):
+            if event_date(b.event_ticker) != target or ledger.has_ticker(b.ticker, MAKER_STRATEGY):
+                continue
+            q = kalshi.orderbook(b.ticker)
+            x = maker_order(q["yes_bid"], q["yes_ask"])
+            if x is None:
+                continue
+            price = round(1 - x, 4)
+            sig = Signal(b.ticker, b.event_ticker, "no", price, prob=price, edge=0.0,
+                         contracts=size, fee=maker_fee(price, size))
+            tid = ledger.record(m.key, sig, strategy=MAKER_STRATEGY)
+            ledger.db.execute("UPDATE trades SET status='resting' WHERE id=?", (tid,))
+            ledger.db.commit()
+            posted.append(sig)
+            log(f"[{m.key}] {MAKER_STRATEGY}: RESTING offer YES @ ${x:.2f} (= NO @ ${price:.2f}) "
+                f"x{size} on {b.ticker} (book {q['yes_bid']}/{q['yes_ask']})")
+    return posted
+
+
+def check_fills(kalshi, ledger, now=None, log=print) -> dict:
+    """Fill resting orders from real trades since they were posted; expire them at close."""
+    now = now or datetime.now(timezone.utc)
+    out = {"filled": 0, "expired": 0, "resting": 0}
+    for t in ledger.db.execute("SELECT * FROM trades WHERE status='resting'").fetchall():
+        mk = kalshi.market(t["ticker"])
+        posted = int(datetime.fromisoformat(t["opened_at"]).timestamp())
+        offer = round(1 - t["price"], 4)
+        q = filled_qty(trades_after(kalshi, t["ticker"], None, posted, cache=False), offer, t["contracts"])
+        closed = mk.close_time and _ts(mk.close_time) <= now.timestamp()
+        if q >= 1 and (closed or q == t["contracts"]):
+            ledger.db.execute("UPDATE trades SET status='open', contracts=?, fee=? WHERE id=?",
+                              (q, maker_fee(t["price"], q), t["id"]))
+            out["filled"] += 1
+            log(f"filled {q}x {t['ticker']} NO @ ${t['price']:.2f}")
+        elif closed:
+            ledger.db.execute("UPDATE trades SET status='expired' WHERE id=?", (t["id"],))
+            out["expired"] += 1
+        else:
+            out["resting"] += 1
+    ledger.db.commit()
+    return out

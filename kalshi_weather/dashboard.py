@@ -78,7 +78,8 @@ def variant_stats(rows: list[dict]) -> dict[str, dict]:
     out = {}
     by = defaultdict(list)
     for r in rows:
-        by[r["strategy"]].append(r)
+        if r["status"] in ("open", "settled"):       # resting/expired maker orders never traded
+            by[r["strategy"]].append(r)
     for name, rs in by.items():
         settled = [r for r in rs if r["status"] == "settled"]
         contracts = sum(r["contracts"] for r in settled)

@@ -108,7 +108,7 @@ def main(argv=None):
     pp.add_argument("--cities", default="all")
     pp.add_argument("--min-edge", type=float, default=StrategyConfig.min_edge)
     pp.add_argument("--prob", choices=["model", "blend"], default="model")
-    pp.add_argument("--strategy", choices=["model", "longshot"], default="model")
+    pp.add_argument("--strategy", choices=["model", "longshot", "maker"], default="model")
     pp.add_argument("--contracts", type=int, default=10)
     pp.add_argument("--variant", default="all", help="longshot variant name, or 'all'")
     pp.add_argument("--scheduled", action="store_true",
@@ -195,6 +195,21 @@ def main(argv=None):
         if not cities:
             print(f"no city is at local hour {a.at_local_hour} right now")
             return
+    if a.cmd == "paper" and a.strategy == "maker":
+        from .brain import Brain
+        from .longshot import due_cities
+        from .markets import MARKETS, ORIGINAL
+        from .mm import MAKER_HOUR, MAKER_STRATEGY, check_fills, run_maker_paper
+        print("fills:", check_fills(kalshi, ledger))
+        size = Brain(ledger).contracts(MAKER_STRATEGY, 0.97)
+        ms = [MARKETS[k] for k in ORIGINAL]
+        todo = due_cities(ms, MAKER_HOUR) if a.scheduled else ms
+        if size and todo:
+            print(f"{len(run_maker_paper(kalshi, ledger, todo, size))} resting order(s) posted")
+        elif not size:
+            print(f"{MAKER_STRATEGY}: stopped by the brain")
+        return
+
     if a.cmd == "paper" and a.strategy == "longshot":
         from dataclasses import replace as _replace
         from .brain import Brain

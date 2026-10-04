@@ -75,7 +75,8 @@ class Ledger:
         return [r[0] for r in self.db.execute("SELECT DISTINCT strategy FROM trades ORDER BY 1")]
 
     def summary(self, strategy: str | None = None) -> dict:
-        rows = self.db.execute("SELECT * FROM trades" + (" WHERE strategy=?" if strategy else ""),
+        rows = self.db.execute("SELECT * FROM trades WHERE status IN ('open','settled')"
+                               + (" AND strategy=?" if strategy else ""),
                                (strategy,) if strategy else ()).fetchall()
         settled = [r for r in rows if r["status"] == "settled"]
         wins = sum(1 for r in settled if r["side"] == r["result"])
