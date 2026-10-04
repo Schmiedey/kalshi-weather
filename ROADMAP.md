@@ -15,8 +15,8 @@ Status: [x] done · [~] in progress · [ ] not started
 - Sizing: quarter-Kelly from the conservative edge estimate, capped by book depth and risk limits
 - State stored in the ledger; GitHub issue opened when a strategy is killed
 
-## Phase 2 - Data engine  [ ]
-- `collector.py`: hourly order-book snapshots (top 5 levels) of all open Kalshi daily weather markets
+## Phase 2 - Data engine  [x]
+- `collector.py`: hourly snapshot of all ~350 open daily temperature markets (best bid/ask, sizes, volume, open interest) from 48 list calls
 - Stored as compressed daily files on a separate `data` branch (main stays small)
 
 ## Phase 3 - Lab  [ ]

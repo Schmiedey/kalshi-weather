@@ -1,0 +1,44 @@
+name: collect
+
+# Hourly snapshot of every open Kalshi daily temperature market (prices, sizes, volume).
+# Snapshots are committed to the `data` branch so the main branch stays small.
+on:
+  schedule:
+    - cron: "37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install requests
+      - name: Check out the data branch (create it the first time)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin data >/dev/null; then
+            git fetch --depth 1 origin data
+            git worktree add -B data store origin/data
+          else
+            git worktree add --detach store
+            cd store && git checkout --orphan data && git rm -rfq . && cd ..
+          fi
+      - run: python -m kalshi_weather collect --root store
+      - name: Save snapshot
+        run: |
+          cd store
+          git add archive
+          git commit -qm "Snapshot $(date -u +%Y-%m-%dT%H:%MZ)" && git push origin data

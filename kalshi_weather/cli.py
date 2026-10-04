@@ -92,6 +92,8 @@ def main(argv=None):
 
     sub.add_parser("settle", help="settle finished paper trades")
     sub.add_parser("report", help="paper trading results")
+    co = sub.add_parser("collect", help="snapshot every open daily temperature market")
+    co.add_argument("--root", default="store", help="folder holding archive/")
     br = sub.add_parser("brain", help="review strategies: edge estimates, status, sizing")
     br.add_argument("--alerts", default=None, help="write newly-stopped strategies to this file")
     br.add_argument("--revive", default=None, help="put a stopped strategy back into evaluation")
@@ -132,6 +134,12 @@ def main(argv=None):
         if t["model_brier"] is not None and t["market_brier"] is not None:
             verdict = "BEATS" if t["model_brier"] < t["market_brier"] else "does NOT beat"
             print(f"Model {verdict} the market on accuracy (lower Brier is better).")
+        return
+
+    if a.cmd == "collect":
+        from .collector import snapshot, write
+        rows = snapshot(KalshiClient(KALSHI_PROD))
+        print(f"{len(rows)} markets -> {write(rows, a.root)}")
         return
 
     if a.cmd == "dashboard":
