@@ -201,7 +201,8 @@ def main(argv=None):
         from .markets import MARKETS, ORIGINAL
         from .mm import MAKER_HOUR, MAKER_STRATEGY, check_fills, run_maker_paper
         print("fills:", check_fills(kalshi, ledger))
-        size = Brain(ledger).contracts(MAKER_STRATEGY, 0.97)
+        from .longshot import VARIANTS
+        size = Brain(ledger).sized(MAKER_STRATEGY, 0.97, list(VARIANTS) + [MAKER_STRATEGY])
         ms = [MARKETS[k] for k in ORIGINAL]
         todo = due_cities(ms, MAKER_HOUR) if a.scheduled else ms
         if size and todo:
@@ -220,7 +221,7 @@ def main(argv=None):
             raise SystemExit(f"unknown variant; choose from {list(VARIANTS)} or all")
         placed = []
         for n in names:
-            size = brain.contracts(n, 0.97)          # typical longshot NO price
+            size = brain.sized(n, 0.97, list(VARIANTS) + ["maker_5pm"])   # 97c: typical NO price
             if size == 0:
                 print(f"{n}: stopped by the brain ({brain.status(n)}); skipping")
                 continue

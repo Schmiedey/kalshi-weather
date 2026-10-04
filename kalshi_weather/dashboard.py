@@ -154,16 +154,68 @@ def _chart(rows: list[dict], names: list[str], color: dict[str, str]) -> str:
     return "".join(out)
 
 
-def render(rows: list[dict], now: datetime | None = None, repo_url: str = "") -> str:
+STRATEGIES = list(VARIANTS) + ["maker_5pm"]
+BACKTEST["maker_5pm"] = (2.15, 1.37, 2.80)
+
+
+def _brain_section(brain: list[dict]) -> str:
+    if not brain:
+        return ""
+    h = ["""<h2>Brain</h2><div class="card"><table><thead><tr><th>Strategy</th><th>Status</th>
+<th>Settled</th><th>Edge estimate ¢</th><th>P(edge &gt; 0)</th><th>P(best)</th><th>Next size</th>
+</tr></thead><tbody>"""]
+    for b in brain:
+        h.append(f'<tr><td>{_esc(b["strategy"])}</td><td>{_esc(b["status"])}</td><td>{b["settled"]}</td>'
+                 f'<td>{_signed(b["post_c"])} ± {b["post_sd_c"]:.2f}</td><td>{b["p_pos"]:.0%}</td>'
+                 f'<td>{b["p_best"]:.0%}</td><td>{b["size"]}</td></tr>')
+    h.append('</tbody></table><p class="muted">Skeptical estimate: starts at 0 ± 1¢ and moves only as '
+             'settled trades come in. A strategy is stopped automatically if P(edge &gt; 0) falls below 10% '
+             'after 200 trades. P(best) shifts size toward the likely-best strategy.</p></div>')
+    return "".join(h)
+
+
+def _etf_section(etf: list[dict]) -> str:
+    if not etf:
+        return ""
+    import json as _json
+    last = etf[-1]
+    held = {k: v for k, v in _json.loads(etf[-1]["weights"] or "{}").items() if v}
+    h = [f"""<h2>ETF trend portfolio (paper)</h2><div class="card"><p class="note">Holds each of SPY, EFA,
+IEF, GLD, DBC only while above its 10-month average. Backtest 2008–2026: 5.3% a year with an 11%
+worst drop (buy-and-hold: 6.3%, 31%). Paper NAV <b>${last['nav']:,.2f}</b> as of {last['month']};
+holding {_esc(', '.join(held) or 'cash')}.</p><table><thead><tr><th>Month</th><th>NAV</th></tr></thead><tbody>"""]
+    for r in etf[-12:][::-1]:
+        h.append(f'<tr><td>{_esc(r["month"])}</td><td>${r["nav"]:,.2f}</td></tr>')
+    h.append("</tbody></table></div>")
+    return "".join(h)
+
+
+def _lab_section(lab: list[dict]) -> str:
+    if not lab:
+        return ""
+    passed = sum(1 for e in lab if e.get("passed"))
+    h = [f"""<h2>Lab</h2><div class="card"><p class="note">{len(lab)} strategy tests on record, {passed}
+passed. Every test is kept, so a pass is read against how many ideas were tried.</p><table><thead><tr>
+<th>#</th><th>Test</th><th>Period</th><th>Verdict</th></tr></thead><tbody>"""]
+    for e in lab[::-1][:15]:
+        h.append(f'<tr><td>{e["id"]}</td><td>{_esc(e["name"])}</td><td>{_esc(e.get("period", ""))}</td>'
+                 f'<td class="{"pos" if e.get("passed") else "neg"}">{"pass" if e.get("passed") else "fail"}</td></tr>')
+    h.append("</tbody></table></div>")
+    return "".join(h)
+
+
+def render(rows: list[dict], now: datetime | None = None, repo_url: str = "",
+           brain: list[dict] | None = None, etf: list[dict] | None = None,
+           lab: list[dict] | None = None) -> str:
     now = now or datetime.now(timezone.utc)
     stats = variant_stats(rows)
-    names = list(VARIANTS) + sorted(n for n in stats if n not in VARIANTS)
+    names = STRATEGIES + sorted(n for n in stats if n not in STRATEGIES)
     color = {n: f"var(--s{i % SLOTS + 1})" for i, n in enumerate(names)}
-    long_rows = [r for r in rows if r["strategy"] in VARIANTS]
+    long_rows = [r for r in rows if r["strategy"] in STRATEGIES and r["status"] in ("open", "settled")]
     settled = [r for r in long_rows if r["status"] == "settled"]
     first = min((r["opened_at"] for r in rows), default=None)
     days = (now - datetime.fromisoformat(first)).days + 1 if first else 0
-    best = max((n for n in VARIANTS if stats.get(n, {}).get("settled")),
+    best = max((n for n in STRATEGIES if stats.get(n, {}).get("settled")),
                key=lambda n: stats[n]["edge"], default=None)
 
     tiles = [("Paper trades", f"{len(long_rows):,}"), ("Settled", f"{len(settled):,}"),
@@ -180,9 +232,9 @@ the day before the event. Fake money, real Kalshi prices.</p>
     for k, v in tiles:
         h.append(f'<div class="tile"><div class="k">{_esc(k)}</div><div class="v">{_esc(v)}</div></div>')
     h.append('</div><h2>Cumulative P&amp;L by variant</h2><div class="card"><ul class="legend">')
-    for n in VARIANTS:
+    for n in STRATEGIES:
         h.append(f'<li><span class="sw" style="background:{color[n]}"></span>{_esc(n.replace("longshot_", ""))}</li>')
-    h.append(f'</ul>{_chart(rows, list(VARIANTS), color)}</div>')
+    h.append(f'</ul>{_chart(rows, STRATEGIES, color)}</div>')
 
     h.append("""<h2>Variants</h2><div class="card"><table><thead><tr><th>Variant</th><th>Trades</th>
 <th>Open</th><th>Settled</th><th>Losses</th><th>P&amp;L</th><th>Edge vs market</th><th>¢ / contract</th>
@@ -202,7 +254,8 @@ the day before the event. Fake money, real Kalshi prices.</p>
                  f'<span style="width:{pct:.1f}%"></span></div></td></tr>')
     h.append("</tbody></table></div>")
 
-    recent = sorted(rows, key=lambda r: r["opened_at"], reverse=True)[:25]
+    h.append(_brain_section(brain or []))
+    recent = sorted((r for r in rows if r["status"] != "expired"), key=lambda r: r["opened_at"], reverse=True)[:25]
     h.append("""<h2>Recent trades</h2><div class="card"><table><thead><tr><th>Opened (UTC)</th>
 <th>Variant</th><th>City</th><th>Bracket</th><th>Side</th><th>Price</th><th>Qty</th><th>Status</th>
 <th>P&amp;L</th></tr></thead><tbody>""")
@@ -210,12 +263,14 @@ the day before the event. Fake money, real Kalshi prices.</p>
         h.append('<tr><td colspan="9" class="muted">No trades yet.</td></tr>')
     for r in recent:
         pnl = "" if r["pnl"] is None else f'<span class="{_cls(r["pnl"])}">{_money(r["pnl"])}</span>'
-        status = r["status"] if r["status"] == "open" else f"won" if r["side"] == r["result"] else "lost"
+        status = r["status"] if r["status"] in ("open", "resting") else "won" if r["side"] == r["result"] else "lost"
         h.append(f'<tr><td>{_esc(r["opened_at"][:16].replace("T", " "))}</td><td>{_esc(r["strategy"])}</td>'
                  f'<td>{_esc(r["city"].upper())}</td><td>{_esc(r["ticker"])}</td><td>{_esc(r["side"].upper())}</td>'
                  f'<td>${r["price"]:.2f}</td><td>{r["contracts"]}</td><td>{status}</td><td>{pnl}</td></tr>')
     h.append("</tbody></table></div>")
 
+    h.append(_etf_section(etf or []))
+    h.append(_lab_section(lab or []))
     h.append(f"""<h2>How to read this</h2><div class="note">
 <p><b>Edge vs market</b> is P&amp;L minus what the market prices implied (the fees you would pay
 with zero edge). Above zero means the strategy beats the market; it's the number that matters.</p>
@@ -231,9 +286,23 @@ They show the best time of day to trade; real money would use one of them.</p>
 
 def build(ledger_path: str, out_path: str, repo_url: str = "") -> int:
     import os
+    from .brain import Brain, p_best
+    from .lab import load
     from .ledger import Ledger
-    rows = [dict(r) for r in Ledger(ledger_path).db.execute("SELECT * FROM trades")]
+    led = Ledger(ledger_path)
+    rows = [dict(r) for r in led.db.execute("SELECT * FROM trades")]
+    br = Brain(led)
+    names = STRATEGIES + sorted({r["strategy"] for r in rows} - set(STRATEGIES))
+    reviews = {n: br.review(n) for n in names}
+    pb = p_best({n: e for n, (st, e, _) in reviews.items() if st != "killed"})
+    brain = [{"strategy": n, "status": st, "settled": e.trades, "post_c": 100 * e.post_mean,
+              "post_sd_c": 100 * e.post_sd, "p_pos": e.p_positive, "p_best": pb.get(n, 0.0),
+              "size": br.sized(n, 0.97, STRATEGIES)} for n, (st, e, _) in reviews.items()]
+    try:
+        etf = [dict(r) for r in led.db.execute("SELECT * FROM etf_nav ORDER BY month")]
+    except Exception:
+        etf = []
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w") as f:
-        f.write(render(rows, repo_url=repo_url))
+        f.write(render(rows, repo_url=repo_url, brain=brain, etf=etf, lab=load()))
     return len(rows)

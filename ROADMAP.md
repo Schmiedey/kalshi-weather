@@ -25,23 +25,32 @@ Status: [x] done · [~] in progress · [ ] not started
 - Locked holdout: the most recent 30 days are only used for a strategy's final exam
 - Longshot scan across every Kalshi daily temperature series; passing series join paper trading
 
-## Phase 4 - Learned models  [ ]
+## Phase 4 - Learned models  [~]
 - `ml.py`: features from prices, spread, timing, bracket position (+ forecasts where available)
 - `calib` (logistic calibration) and `gbm` (gradient boosting) models, walk-forward evaluated
   against the market's own Brier score; retrained weekly in Actions; paper variants if they pass
 
-## Phase 5 - Market making  [ ]
+## Phase 5 - Market making  [x]
 - Fill model from Kalshi's public trade history: would a resting order at price X have filled?
 - Maker version of the longshot trade (post 1c better than the bid instead of hitting it)
 - Paper: virtual resting orders, filled only if real trades cross them
 
-## Phase 6 - Other markets  [ ]
+## Phase 6 - Other markets  [~]
 - Kalshi vs Polymarket scanner for matching temperature markets (logs gaps; resolution sources differ)
 - ETF trend-following (10-month average rule) on free Stooq prices, paper portfolio
 
-## Phase 7 - Allocation and dashboard  [ ]
+## Phase 7 - Allocation and dashboard  [x]
 - Thompson-sampling allocator across strategies
 - Dashboard: brain status per strategy, allocations, ETF equity curve, scanner, collector health
+
+## Results so far (see `python -m kalshi_weather lab list`)
+- Phase 4: `calib` and `gbm` both fail on the 7 original series (dev); rerun on all 48 pending
+- Phase 5: maker longshot passed dev (+2.15c, 95% CI [+1.37, +2.80]); holdout positive but
+  inconclusive (65 trades, +1.01c); paper-trading as `maker_5pm`
+- Phase 6: Polymarket US temperature markets settle on different stations than Kalshi (no true
+  arbitrage); Polymarket longshot backtest pending. ETF trend: 2008-2026 CAGR 5.3%, max drawdown
+  11% (vs 6.3% / 31% buy-and-hold); paper NAV updated nightly
+- Phase 3: pooled longshot test on the 41 untouched series (highs, lows) pending data download
 
 ## Rules for every strategy
 Rule fixed before testing · walk-forward only · fees and spread included · fills checked

@@ -59,3 +59,14 @@ def test_drawdown_kill(tmp_path):
         t = led.record("nyc", longshot_signal(f"T{i}", f"E{i}", 0.03, LongshotConfig()), strategy="dd")
         led.settle(t, "yes")
     assert Brain(led).review("dd")[0] == "killed"
+
+
+def test_thompson_allocation_prefers_the_stronger_strategy():
+    from kalshi_weather.brain import allocation_multiplier, p_best
+    strong, weak = estimate(trades(3000, 0.005, seed=1)), estimate(trades(3000, 0.02, seed=2))
+    pb = p_best({"strong": strong, "weak": weak})
+    assert pb["strong"] > 0.95 and abs(sum(pb.values()) - 1) < 1e-9
+    assert allocation_multiplier(pb["strong"], 2) == 1.9 or allocation_multiplier(pb["strong"], 2) > 1.8
+    assert allocation_multiplier(pb["weak"], 2) == 0.5
+    prior = p_best({"a": estimate([]), "b": estimate([])})
+    assert abs(prior["a"] - 0.5) < 0.05             # no data: equal odds -> multiplier ~1

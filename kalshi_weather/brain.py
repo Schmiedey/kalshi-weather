@@ -152,5 +152,38 @@ class Brain:
         status, est, _ = self.review(strategy)
         return 0 if status == "killed" else kelly_contracts(est, price, self.cfg)
 
+    def allocations(self, names: list[str]) -> dict[str, float]:
+        """P(best) among the live (not killed) strategies in `names`."""
+        live = {n: self.review(n)[1] for n in names if self.status(n) != "killed"}
+        return p_best(live)
+
+    def sized(self, strategy: str, price: float, names: list[str]) -> int:
+        """Kelly size scaled by the Thompson allocation across `names`; 0 if killed."""
+        base = self.contracts(strategy, price)
+        if base == 0:
+            return 0
+        pb = self.allocations(names).get(strategy, 0.0)
+        cap = self.cfg.max_contracts
+        return int(max(1, min(cap, round(base * allocation_multiplier(pb, len(names))))))
+
     def revive(self, strategy: str) -> None:
         self._set(strategy, "evaluating", "revived by hand")
+
+
+def p_best(estimates: dict[str, Estimate], draws: int = 4000, seed: int = 0) -> dict[str, float]:
+    """Thompson sampling: share of posterior draws in which each strategy has the highest edge."""
+    import random
+    rng = random.Random(seed)
+    names = list(estimates)
+    if not names:
+        return {}
+    wins = dict.fromkeys(names, 0)
+    for _ in range(draws):
+        best = max(names, key=lambda n: rng.gauss(estimates[n].post_mean, estimates[n].post_sd))
+        wins[best] += 1
+    return {n: wins[n] / draws for n in names}
+
+
+def allocation_multiplier(pb: float, n: int, lo: float = 0.5, hi: float = 2.0) -> float:
+    """Scale size by how likely a strategy is the best (1.0 when all are equally likely)."""
+    return max(lo, min(hi, pb * n))

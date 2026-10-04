@@ -27,3 +27,15 @@ def test_stats_and_chart_from_settled_trades(tmp_path):
     assert round(s["edge"], 2) == round(s["pnl"] + 0.02 + 0.03, 2)   # baseline = fees only
     page = render(rows, now=datetime(2026, 10, 5, tzinfo=timezone.utc))
     assert "<svg" in page and "<path" in page and "longshot_5pm" in page
+
+
+def test_brain_etf_and_lab_sections():
+    brain = [{"strategy": "longshot_5pm", "status": "active", "settled": 300, "post_c": 1.1, "post_sd_c": 0.3,
+              "p_pos": 0.99, "p_best": 0.6, "size": 40}]
+    etf = [{"month": "2026-10", "nav": 10000.0, "weights": "{}"},
+           {"month": "2026-11", "nav": 10100.0, "weights": '{"SPY": 0.2, "GLD": 0.2, "DBC": 0.0}'}]
+    lab = [{"id": 1, "name": "x", "period": "dev", "passed": True}, {"id": 2, "name": "y", "passed": False}]
+    page = render([], brain=brain, etf=etf, lab=lab)
+    assert "<h2>Brain</h2>" in page and "+1.10 ± 0.30" in page
+    assert "$10,100.00" in page and "SPY, GLD" in page
+    assert "2 strategy tests on record, 1" in page
