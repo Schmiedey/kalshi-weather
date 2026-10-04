@@ -11,6 +11,7 @@ on:
 permissions:
   contents: write
   pages: write
+  issues: write
   id-token: write
 
 concurrency:
@@ -36,6 +37,15 @@ jobs:
           python -m kalshi_weather --data ledger settle
           python -m kalshi_weather --data ledger paper --strategy longshot --scheduled
           python -m kalshi_weather --data ledger report
+          python -m kalshi_weather --data ledger brain --alerts alerts.txt
+      - name: Open an issue if the brain stopped a strategy
+        if: hashFiles('alerts.txt') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -s alerts.txt ]; then
+            gh issue create --title "Brain stopped a strategy" --body-file alerts.txt
+          fi
       - name: Save ledger
         run: |
           git config user.name "github-actions[bot]"

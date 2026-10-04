@@ -92,6 +92,9 @@ def main(argv=None):
 
     sub.add_parser("settle", help="settle finished paper trades")
     sub.add_parser("report", help="paper trading results")
+    br = sub.add_parser("brain", help="review strategies: edge estimates, status, sizing")
+    br.add_argument("--alerts", default=None, help="write newly-stopped strategies to this file")
+    br.add_argument("--revive", default=None, help="put a stopped strategy back into evaluation")
     db = sub.add_parser("dashboard", help="write an HTML dashboard of the paper ledger")
     db.add_argument("--out", default="site/index.html")
     db.add_argument("--repo-url", default="")
@@ -147,13 +150,19 @@ def main(argv=None):
             return
     if a.cmd == "paper" and a.strategy == "longshot":
         from dataclasses import replace as _replace
+        from .brain import Brain
         from .longshot import VARIANTS, due_cities, run_longshot_paper
+        brain = Brain(ledger)
         names = list(VARIANTS) if a.variant == "all" else [a.variant]
         if any(n not in VARIANTS for n in names):
             raise SystemExit(f"unknown variant; choose from {list(VARIANTS)} or all")
         placed = []
         for n in names:
-            cfg = _replace(VARIANTS[n], contracts=a.contracts)
+            size = brain.contracts(n, 0.97)          # typical longshot NO price
+            if size == 0:
+                print(f"{n}: stopped by the brain ({brain.status(n)}); skipping")
+                continue
+            cfg = _replace(VARIANTS[n], contracts=size if a.contracts == 10 else a.contracts)
             todo = due_cities(cities, cfg.hour) if a.scheduled else cities
             if todo:
                 placed += run_longshot_paper(kalshi, ledger, todo, cfg)
@@ -170,6 +179,29 @@ def main(argv=None):
     elif a.cmd == "settle":
         from .paper import settle_open
         print(f"{settle_open(kalshi, ledger)} trade(s) settled.")
+    elif a.cmd == "brain":
+        from .brain import Brain
+        from .longshot import VARIANTS
+        brain = Brain(ledger)
+        if a.revive:
+            brain.revive(a.revive)
+            print(f"{a.revive} revived")
+        rows, alerts = [], []
+        for n in sorted(set(VARIANTS) | set(ledger.strategies())):
+            status, est, alert = brain.review(n)
+            if alert:
+                alerts.append(alert)
+            rows.append({"strategy": n, "status": status, "settled": est.trades,
+                         "c/contract": round(100 * est.mean, 3) if est.trades else None,
+                         "post_c": round(100 * est.post_mean, 3), "post_sd_c": round(100 * est.post_sd, 3),
+                         "P(edge>0)": round(est.p_positive, 3), "drawdown": round(est.drawdown, 2),
+                         "size@97c": brain.contracts(n, 0.97)})
+        _table(rows)
+        if a.alerts:
+            with open(a.alerts, "w") as f:
+                f.write("\n".join(alerts))
+        for x in alerts:
+            print("ALERT:", x)
     elif a.cmd == "report":
         for strat in ledger.strategies() or ["model"]:
             s = ledger.summary(strat)
