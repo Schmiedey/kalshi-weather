@@ -23,6 +23,7 @@ class LongshotConfig:
     min_yes_bid: float = 0.01     # need a YES bid to sell into (no bid = no NO ask)
     contracts: int = 10
     fee_rate: float = 0.07
+    max_yes_ask: float | None = None   # if set, skip brackets whose YES ask is missing or above this
 
 
 # Variants: the same rule at different local hours on the day before the event.
@@ -36,6 +37,13 @@ VARIANTS = {f"longshot_{label}": LongshotConfig(name=f"longshot_{label}", hour=h
             for label, h in (("noon", 12), ("3pm", 15), ("5pm", 17), ("7pm", 19),
                              ("9pm", 21), ("11pm", 23))}
 
+# Forward test, registered 2026-10-04 before any of its trades (lab experiment
+# "longshot41_5pm"). On the 41 newer, thinner series the plain rule lost money
+# (-0.6c to -0.7c): many brackets there show a 1-4c bid with a 65-95c ask, i.e. no real
+# market. This variant needs a YES ask of 10c or less and is judged only on paper
+# trades placed from now on, never on the data that suggested it.
+FORWARD = {"longshot41_5pm": LongshotConfig(name="longshot41_5pm", hour=17, max_yes_ask=0.10)}
+
 
 def due_cities(cities, hour: int, now=None) -> list:
     """Cities where the local time is currently `hour` o'clock."""
@@ -46,13 +54,15 @@ def due_cities(cities, hour: int, now=None) -> list:
 
 
 def longshot_signal(ticker: str, event_ticker: str, yes_bid: float | None, cfg: LongshotConfig,
-                    available: float | None = None) -> Signal | None:
+                    available: float | None = None, yes_ask: float | None = None) -> Signal | None:
     """NO order at 1 - yes_bid, sized to what the book can fill.
 
     `prob` is the market-implied NO probability (1 - yes_bid), so the ledger's
     expected P&L is the no-edge baseline and realized minus expected is the edge.
     """
     if yes_bid is None or not (cfg.min_yes_bid <= yes_bid < cfg.max_yes_bid):
+        return None
+    if cfg.max_yes_ask is not None and (yes_ask is None or yes_ask > cfg.max_yes_ask):
         return None
     n = cfg.contracts if available is None else min(cfg.contracts, int(available))
     if n < 1:
@@ -101,7 +111,7 @@ def backtest_longshot(rows: list[dict], cfg: LongshotConfig) -> list[dict]:
     """rows: dicts with city, date, event, ticker, bid (YES bid at decision), result ('yes'/'no')."""
     trades = []
     for r in rows:
-        sig = longshot_signal(r["ticker"], r["event"], r["bid"], cfg)
+        sig = longshot_signal(r["ticker"], r["event"], r["bid"], cfg, yes_ask=r.get("ask"))
         if sig is None:
             continue
         pnl = settle_pnl("no", sig.price, sig.contracts, sig.fee, r["result"])
@@ -174,7 +184,8 @@ def run_longshot_paper(kalshi, ledger, cities, cfg: LongshotConfig, now=None, lo
             if ledger.has_ticker(b.ticker, cfg.name):
                 continue
             q = kalshi.orderbook(b.ticker)
-            sig = longshot_signal(b.ticker, b.event_ticker, q["yes_bid"], cfg, q["yes_bid_qty"])
+            sig = longshot_signal(b.ticker, b.event_ticker, q["yes_bid"], cfg, q["yes_bid_qty"],
+                                  yes_ask=q.get("yes_ask"))
             if sig is None:
                 continue
             ledger.record(city.key, sig, strategy=cfg.name)

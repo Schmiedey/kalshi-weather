@@ -108,7 +108,7 @@ def main(argv=None):
     pp.add_argument("--cities", default="all")
     pp.add_argument("--min-edge", type=float, default=StrategyConfig.min_edge)
     pp.add_argument("--prob", choices=["model", "blend"], default="model")
-    pp.add_argument("--strategy", choices=["model", "longshot", "maker"], default="model")
+    pp.add_argument("--strategy", choices=["model", "longshot", "maker", "poly"], default="model")
     pp.add_argument("--contracts", type=int, default=10)
     pp.add_argument("--variant", default="all", help="longshot variant name, or 'all'")
     pp.add_argument("--scheduled", action="store_true",
@@ -212,6 +212,17 @@ def main(argv=None):
             print(f"{MAKER_STRATEGY}: stopped by the brain")
         return
 
+    if a.cmd == "paper" and a.strategy == "poly":
+        from .brain import Brain
+        from .polymarket import POLY_STRATEGY, clients, run_poly_paper
+        size = Brain(ledger).contracts(POLY_STRATEGY, 0.97)
+        if not size:
+            print(f"{POLY_STRATEGY}: stopped by the brain")
+            return
+        g, c = clients(cache_dir=None)
+        print(f"{run_poly_paper(g, c, ledger, size)} Polymarket paper trade(s) placed.")
+        return
+
     if a.cmd == "paper" and a.strategy == "longshot":
         from dataclasses import replace as _replace
         from .brain import Brain
@@ -232,6 +243,17 @@ def main(argv=None):
                 placed += run_longshot_paper(kalshi, ledger, todo, cfg)
             else:
                 print(f"{n}: no city is at {cfg.hour}:00 local right now")
+        if a.variant == "all":
+            from .longshot import FORWARD
+            from .markets import MARKETS, ORIGINAL
+            newer = [m for k, m in MARKETS.items() if k not in ORIGINAL]
+            for n, cfg in FORWARD.items():
+                size = brain.contracts(n, 0.97)
+                todo = due_cities(newer, cfg.hour) if a.scheduled else newer
+                if size and todo:
+                    placed += run_longshot_paper(kalshi, ledger, todo, _replace(cfg, contracts=size))
+                elif not size:
+                    print(f"{n}: stopped by the brain")
         print(f"\n{len(placed)} longshot paper trade(s) placed.")
     elif a.cmd == "paper":
         from .paper import load_blend_weights, load_params, run_paper
@@ -243,6 +265,11 @@ def main(argv=None):
     elif a.cmd == "settle":
         from .paper import settle_open
         print(f"{settle_open(kalshi, ledger)} trade(s) settled.")
+        try:
+            from .polymarket import clients, settle_poly
+            print(f"{settle_poly(clients(cache_dir=None)[0], ledger)} Polymarket trade(s) settled.")
+        except Exception as e:      # a Polymarket outage must not stop the Kalshi run
+            print("Polymarket settle failed:", repr(e)[:200])
     elif a.cmd == "etf":
         from .etf import backtest, fetch_all, stats, update_paper
         closes = fetch_all()

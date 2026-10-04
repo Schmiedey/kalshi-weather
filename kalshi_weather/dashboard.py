@@ -154,8 +154,9 @@ def _chart(rows: list[dict], names: list[str], color: dict[str, str]) -> str:
     return "".join(out)
 
 
-STRATEGIES = list(VARIANTS) + ["maker_5pm"]
+STRATEGIES = list(VARIANTS) + ["maker_5pm", "poly_longshot"]
 BACKTEST["maker_5pm"] = (2.15, 1.37, 2.80)
+BACKTEST["poly_longshot"] = (0.57, 0.16, 0.91)      # assumed 0.5c slippage; live asks ~0.3c worse
 
 
 def _brain_section(brain: list[dict]) -> str:
@@ -194,12 +195,14 @@ def _lab_section(lab: list[dict]) -> str:
     if not lab:
         return ""
     passed = sum(1 for e in lab if e.get("passed"))
+    lab = [e | {"passed": e.get("passed", False)} for e in lab]
     h = [f"""<h2>Lab</h2><div class="card"><p class="note">{len(lab)} strategy tests on record, {passed}
 passed. Every test is kept, so a pass is read against how many ideas were tried.</p><table><thead><tr>
 <th>#</th><th>Test</th><th>Period</th><th>Verdict</th></tr></thead><tbody>"""]
     for e in lab[::-1][:15]:
+        v = "pending" if e.get("passed") is None else "pass" if e["passed"] else "fail"
         h.append(f'<tr><td>{e["id"]}</td><td>{_esc(e["name"])}</td><td>{_esc(e.get("period", ""))}</td>'
-                 f'<td class="{"pos" if e.get("passed") else "neg"}">{"pass" if e.get("passed") else "fail"}</td></tr>')
+                 f'<td class="{ {"pass": "pos", "fail": "neg"}.get(v, "")}">{v}</td></tr>')
     h.append("</tbody></table></div>")
     return "".join(h)
 
@@ -208,19 +211,26 @@ passed. Every test is kept, so a pass is read against how many ideas were tried.
 RESEARCH = [
     ("Weather forecast model (GFS, ECMWF, ICON)", "rejected",
      "Kalshi prices were more accurate than the forecasts (Brier 0.106 vs 0.129)."),
-    ("Longshot: sell 1–4¢ brackets the day before", "paper trading",
-     "+0.5 to +1.1¢ per contract after fees over 180 days, 7 cities; positive in both halves."),
+    ("Longshot: sell 1–4¢ brackets the day before (7 big cities)", "paper trading",
+     "+0.5 to +1.1¢ per contract after fees over 180 days; positive in both halves and every city."),
     ("Maker longshot: post an order 1¢ better, wait for a fill", "paper trading",
      "+2.15¢ per contract in development data; final exam +1.0¢ on 65 trades, too few to be sure."),
+    ("Longshot on the 41 other Kalshi temperature markets", "rejected",
+     "Lost 0.6–0.7¢ per contract (11,575 trades). Those markets are thin: many 1–4¢ bids have no "
+     "real seller behind them (asks of 65–95¢)."),
+    ("Same, only where the ask is 10¢ or less (longshot41_5pm)", "forward test",
+     "Idea came from the failure above, so it is judged only on paper trades from now on."),
+    ("Polymarket longshot", "forward test",
+     "Backtest +0.57¢ (CI +0.16 to +0.91) with an assumed cost; real asks are ~0.3¢ worse, so the "
+     "edge may be near zero. Paper-trading at real asks (poly_longshot)."),
+    ("Machine learning on market prices (calibration, boosting)", "rejected",
+     "All 48 markets: slightly better Brier than the market (0.1041 vs 0.1056) but no profit after "
+     "costs (CI includes zero, first half negative)."),
     ("Forecast/market blend, favorites, bracket arbitrage", "rejected", "No edge after fees."),
     ("Day-of trading with live station observations", "rejected",
      "Brackets already ruled out by the weather never had buyers to sell to."),
-    ("Machine learning on market prices (calibration, boosting)", "rejected",
-     "Did not beat the market's own prices on the 7 original cities."),
     ("Kalshi vs Polymarket arbitrage", "not possible",
      "The two sites settle on different weather stations, so price gaps are not free money."),
-    ("Polymarket longshot", "pending", "Backtest running."),
-    ("Longshot on 41 more Kalshi temperature markets", "pending", "Price history downloading."),
     ("ETF trend (hold only what is above its 10-month average)", "paper trading",
      "2008–2026: 5.3% a year with an 11% worst drop, vs 6.3% and 31% for buy-and-hold."),
 ]
@@ -283,7 +293,7 @@ since {c["first"].strftime("%Y-%m-%d")}. This builds a private history that futu
 
 
 def _research_section(research: list[tuple[str, str, str]]) -> str:
-    cls = {"paper trading": "pos", "rejected": "neg", "not possible": "neg"}
+    cls = {"paper trading": "pos", "forward test": "pos", "rejected": "neg", "not possible": "neg"}
     h = ["""<h2>What has been tested</h2><div class="card"><table><thead><tr><th>Idea</th><th>Verdict</th>
 <th style="text-align:left">Evidence</th></tr></thead><tbody>"""]
     for idea, verdict, detail in research:

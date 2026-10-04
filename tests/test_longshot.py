@@ -97,3 +97,16 @@ def test_quote_from_candles_never_uses_later_data():
     assert quote_from_candles(cs, 150) == (0.02, 0.03)
     assert quote_from_candles(cs, 200) == (0.30, 0.32)
     assert quote_from_candles(cs, 50) == (None, None)
+
+
+def test_ask_filter_only_applies_when_set():
+    from kalshi_weather.longshot import FORWARD
+    plain, fwd = LongshotConfig(), FORWARD["longshot41_5pm"]
+    assert longshot_signal("T", "E", 0.02, plain, yes_ask=0.90) is not None   # original rule unchanged
+    assert longshot_signal("T", "E", 0.02, fwd, yes_ask=0.90) is None         # stub bid, no real market
+    assert longshot_signal("T", "E", 0.02, fwd, yes_ask=None) is None
+    assert longshot_signal("T", "E", 0.02, fwd, yes_ask=0.05).price == 0.98
+    rows = [{"city": "x", "date": "2026-09-01", "event": "E", "ticker": "A", "bid": 0.02, "ask": 0.95, "result": "yes"},
+            {"city": "x", "date": "2026-09-01", "event": "E", "ticker": "B", "bid": 0.02, "ask": 0.04, "result": "no"}]
+    assert [t["ticker"] for t in backtest_longshot(rows, fwd)] == ["B"]
+    assert len(backtest_longshot(rows, plain)) == 2

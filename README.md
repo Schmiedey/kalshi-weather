@@ -142,7 +142,7 @@ Two workflows run on GitHub's servers, free on a public repo:
 
 - `paper.yml` (every hour at :07): settles finished trades, runs each longshot variant in
   the cities where it is currently that variant's local hour, posts and checks maker
-  orders, updates the brain, updates the ETF paper portfolio once a day, commits the
+  orders, places Polymarket paper trades, updates the brain, updates the ETF paper portfolio once a day, commits the
   ledger to `ledger/paper.db`, and rebuilds the dashboard on GitHub Pages
   (https://schmiedey.github.io/kalshi-weather/).
 - `collect.yml` (every hour at :37): saves prices for every open Kalshi daily temperature
@@ -155,7 +155,7 @@ skips that variant for that city that day.
 
 | Part | What it does |
 |---|---|
-| Strategies | `longshot_*`: buy NO on brackets with YES at 1-4c, the day before, at six times of day. `maker_5pm`: same idea, but posts an order 1c better and waits for a real trade to fill it. ETF trend: holds SPY/EFA/IEF/GLD/DBC only while above their 10-month average. |
+| Strategies | `longshot_*`: buy NO on brackets with YES at 1-4c, the day before, at six times of day (7 big cities). `maker_5pm`: same idea, but posts an order 1c better and waits for a real trade to fill it. Forward tests: `longshot41_5pm` (41 other cities, ask <= 10c only) and `poly_longshot` (Polymarket, at live asks). ETF trend: holds SPY/EFA/IEF/GLD/DBC only while above their 10-month average. |
 | Brain (`brain.py`) | For each strategy: a skeptical estimate of edge per contract (starts at 0 +/- 1c), P(edge > 0), and a kill switch (stops a strategy after 200 trades if P(edge > 0) < 10%, or on a large drawdown, and opens a GitHub issue). Sizes trades by quarter-Kelly and shifts size toward the strategy most likely to be best (Thompson sampling). |
 | Lab (`lab.py`) | Tests ideas walk-forward with fees. Every test is logged in `lab/experiments.jsonl`, and the last 30 days are locked for a one-time final exam. `python -m kalshi_weather lab list` shows them all. |
 | Models (`ml.py`) | Small scikit-learn models (logistic calibration, gradient boosting) on market prices, judged against the market's own Brier score. |

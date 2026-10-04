@@ -91,6 +91,8 @@ def run_paper(kalshi, weather, ledger, cities: list[City], cfg: StrategyConfig,
 def settle_open(kalshi, ledger, log=print) -> int:
     n = 0
     for t in ledger.open_trades():
+        if (t["strategy"] or "").startswith("poly_"):
+            continue                # Polymarket trades settle in polymarket.settle_poly
         m = kalshi.market(t["ticker"])
         if m.result in ("yes", "no"):
             pnl = ledger.settle(t["id"], m.result)

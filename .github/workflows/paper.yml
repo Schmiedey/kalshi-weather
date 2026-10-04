@@ -37,6 +37,7 @@ jobs:
           python -m kalshi_weather --data ledger settle
           python -m kalshi_weather --data ledger paper --strategy longshot --scheduled
           python -m kalshi_weather --data ledger paper --strategy maker --scheduled
+          python -m kalshi_weather --data ledger paper --strategy poly || echo "Polymarket paper step failed"
           python -m kalshi_weather --data ledger report
           python -m kalshi_weather --data ledger brain --alerts alerts.txt
           if [ "$(date -u +%H)" = "23" ]; then
