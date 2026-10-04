@@ -15,15 +15,34 @@ from dataclasses import dataclass
 
 from .strategy import Signal, settle_pnl, taker_fee
 
-STRATEGY = "longshot"
-
-
 @dataclass
 class LongshotConfig:
+    name: str = "longshot_3pm"    # ledger strategy name
+    hour: int = 15                # local hour on the day before the event to trade
     max_yes_bid: float = 0.05     # buy NO when the best YES bid is below this
     min_yes_bid: float = 0.01     # need a YES bid to sell into (no bid = no NO ask)
     contracts: int = 10
     fee_rate: float = 0.07
+
+
+# Variants: the same rule at different local hours on the day before the event.
+# Backtest (180 days, 7 cities, 10 contracts, after fees), c/contract and 90% CI:
+#   noon +0.48 [+0.03, +0.94]   3pm +0.83 [+0.37, +1.27]   5pm +1.09 [+0.70, +1.47]
+#   7pm  +1.02 [+0.63, +1.38]   9pm +0.83 [+0.37, +1.27]  11pm +0.55 [+0.07, +1.01]
+# Each passed the bar set before testing: CI above zero and both halves positive.
+# They trade mostly the same brackets, so run them side by side to compare timing,
+# but real money should use one of them, not all.
+VARIANTS = {f"longshot_{label}": LongshotConfig(name=f"longshot_{label}", hour=h)
+            for label, h in (("noon", 12), ("3pm", 15), ("5pm", 17), ("7pm", 19),
+                             ("9pm", 21), ("11pm", 23))}
+
+
+def due_cities(cities, hour: int, now=None) -> list:
+    """Cities where the local time is currently `hour` o'clock."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    now = now or datetime.now(timezone.utc)
+    return [c for c in cities if now.astimezone(ZoneInfo(c.tz)).hour == hour]
 
 
 def longshot_signal(ticker: str, event_ticker: str, yes_bid: float | None, cfg: LongshotConfig,
@@ -88,11 +107,35 @@ def backtest_longshot(rows: list[dict], cfg: LongshotConfig) -> list[dict]:
     return trades
 
 
+DAY_BEFORE_HOURS = (11, 23)   # one cached candle window per bracket covers all decision hours
+
+
+def day_before_candles(kalshi, city, bracket, d):
+    """Hourly candles for 11am-11pm local on the day before event day `d`."""
+    from datetime import datetime, time, timedelta
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(city.tz)
+    prev = d - timedelta(days=1)
+    s = int(datetime.combine(prev, time(DAY_BEFORE_HOURS[0]), tz).timestamp())
+    e = int(datetime.combine(prev, time(DAY_BEFORE_HOURS[1]), tz).timestamp())
+    return kalshi.candles(city.series, bracket.ticker, s, e, period=60, close_time=bracket.close_time)
+
+
+def quote_from_candles(candles: list[dict], ts: int, lookback: int = 4 * 3600):
+    """Latest YES bid/ask at or before `ts` (no later data), from the last `lookback` seconds."""
+    for c in reversed(candles):
+        if ts - lookback < c["ts"] <= ts and (c["yes_bid"] is not None or c["yes_ask"] is not None):
+            return c["yes_bid"], c["yes_ask"]
+    return None, None
+
+
 def collect_quotes(kalshi, city, start, end, decision_hour: int = 15) -> list[dict]:
-    """YES bid/ask for every settled bracket at the decision time (3pm local, day before)."""
+    """YES bid/ask for every settled bracket at `decision_hour` local on the day before."""
     from datetime import datetime, time, timedelta, timezone
-    from .backtest import decision_ts, quote_at
+    from .backtest import decision_ts
     from .kalshi import event_date
+    if not DAY_BEFORE_HOURS[0] <= decision_hour <= DAY_BEFORE_HOURS[1]:
+        raise ValueError(f"decision_hour must be within {DAY_BEFORE_HOURS}")
     min_ts = int(datetime.combine(start, time(0), timezone.utc).timestamp())
     max_ts = int(datetime.combine(end + timedelta(days=2), time(0), timezone.utc).timestamp())
     rows = []
@@ -100,7 +143,8 @@ def collect_quotes(kalshi, city, start, end, decision_hour: int = 15) -> list[di
         d = event_date(b.event_ticker)
         if not d or not (start <= d <= end) or b.result is None:
             continue
-        bid, ask = quote_at(kalshi, city, b.ticker, decision_ts(d, city, decision_hour))
+        candles = day_before_candles(kalshi, city, b, d)
+        bid, ask = quote_from_candles(candles, decision_ts(d, city, decision_hour))
         rows.append({"city": city.key, "date": d.isoformat(), "event": b.event_ticker,
                      "ticker": b.ticker, "bid": bid, "ask": ask, "result": b.result})
     return rows
@@ -123,17 +167,17 @@ def run_longshot_paper(kalshi, ledger, cities, cfg: LongshotConfig, now=None, lo
             continue
         n = 0
         for b in brackets:
-            if ledger.has_ticker(b.ticker, STRATEGY):
+            if ledger.has_ticker(b.ticker, cfg.name):
                 continue
             q = kalshi.orderbook(b.ticker)
             sig = longshot_signal(b.ticker, b.event_ticker, q["yes_bid"], cfg, q["yes_bid_qty"])
             if sig is None:
                 continue
-            ledger.record(city.key, sig, strategy=STRATEGY)
+            ledger.record(city.key, sig, strategy=cfg.name)
             placed.append(sig)
             n += 1
-            log(f"[{city.key}] PAPER BUY {sig.contracts}x NO {sig.ticker} @ ${sig.price:.2f} "
+            log(f"[{city.key}] {cfg.name}: PAPER BUY {sig.contracts}x NO {sig.ticker} @ ${sig.price:.2f} "
                 f"(YES bid {q['yes_bid']:.2f}, {q['yes_bid_qty']:.0f} available)")
         if not n:
-            log(f"[{city.key}] {target}: no longshot brackets (YES bid < {cfg.max_yes_bid:.2f})")
+            log(f"[{city.key}] {cfg.name} {target}: no longshot brackets (YES bid < {cfg.max_yes_bid:.2f})")
     return placed

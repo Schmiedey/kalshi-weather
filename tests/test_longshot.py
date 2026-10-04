@@ -4,8 +4,9 @@ from datetime import date, datetime, timedelta, timezone
 
 from kalshi_weather.config import CITIES
 from kalshi_weather.ledger import Ledger
-from kalshi_weather.longshot import (LongshotConfig, backtest_longshot, longshot_signal,
-                                     run_longshot_paper, summarize)
+from kalshi_weather.longshot import (VARIANTS, LongshotConfig, backtest_longshot, due_cities,
+                                     longshot_signal, quote_from_candles, run_longshot_paper,
+                                     summarize)
 from tests.fakes import FakeKalshi, World
 
 
@@ -46,9 +47,9 @@ def test_ledger_migrates_old_db_and_separates_strategies(tmp_path):
     db.close()
     led = Ledger(p)
     assert led.strategies() == ["model"] and led.has_event("E")
-    led.record("nyc", longshot_signal("B", "E", 0.02, LongshotConfig()), strategy="longshot")
-    assert led.has_ticker("B", "longshot") and not led.has_ticker("A", "longshot")
-    assert led.summary("longshot")["total_trades"] == 1 and led.summary()["total_trades"] == 2
+    led.record("nyc", longshot_signal("B", "E", 0.02, LongshotConfig()), strategy="longshot_3pm")
+    assert led.has_ticker("B", "longshot_3pm") and not led.has_ticker("A", "longshot_3pm")
+    assert led.summary("longshot_3pm")["total_trades"] == 1 and led.summary()["total_trades"] == 2
 
 
 def test_paper_buys_no_on_longshots_once(tmp_path):
@@ -67,3 +68,32 @@ def test_paper_buys_no_on_longshots_once(tmp_path):
     placed = run_longshot_paper(k, led, [city], LongshotConfig(), now=now, log=lambda *a: None)
     assert len(placed) == 1 and placed[0].side == "no" and placed[0].price == 0.98
     assert run_longshot_paper(k, led, [city], LongshotConfig(), now=now, log=lambda *a: None) == []
+
+
+def test_variants_use_own_ledger_names(tmp_path):
+    city = CITIES["nyc"]
+    w = World(city, date(2025, 1, 1), 10, true_sigma=2.0, bias=0.0, market_sigma=2.0, seed=1)
+    d = date(2025, 10, 30)
+    w.forecasts[d] = 70.0
+    k = FakeKalshi(w, open_date=d)
+    first = k.markets(city.series, status="open")[0].ticker
+    w.prices[first] = (0.02, 0.03)
+    led = Ledger(str(tmp_path / "p.db"))
+    now = datetime(2025, 10, 29, 19, tzinfo=timezone.utc)
+    for cfg in VARIANTS.values():          # same bracket, traded once per variant
+        assert len(run_longshot_paper(k, led, [city], cfg, now=now, log=lambda *a: None)) == 1
+    assert sorted(led.strategies()) == sorted(VARIANTS)
+
+
+def test_due_cities_by_local_hour():
+    cities = [CITIES["nyc"], CITIES["chi"], CITIES["lax"]]
+    now = datetime(2026, 7, 1, 19, 7, tzinfo=timezone.utc)      # 3pm EDT, 2pm CDT, noon PDT
+    assert [c.key for c in due_cities(cities, 15, now)] == ["nyc"]
+    assert [c.key for c in due_cities(cities, 12, now)] == ["lax"]
+
+
+def test_quote_from_candles_never_uses_later_data():
+    cs = [{"ts": 100, "yes_bid": 0.02, "yes_ask": 0.03}, {"ts": 200, "yes_bid": 0.30, "yes_ask": 0.32}]
+    assert quote_from_candles(cs, 150) == (0.02, 0.03)
+    assert quote_from_candles(cs, 200) == (0.30, 0.32)
+    assert quote_from_candles(cs, 50) == (None, None)

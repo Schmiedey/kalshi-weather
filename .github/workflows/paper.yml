@@ -1,11 +1,11 @@
 name: paper-trade
 
-# Runs hourly 19:07-23:07 UTC. That window contains 3pm local for every city in
-# both summer and winter time; the bot only trades cities where it is 3pm right now,
-# matching the backtest. The ledger (ledger/paper.db) is committed back to the repo.
+# Runs every hour. Each longshot variant (see VARIANTS in kalshi_weather/longshot.py)
+# only trades the cities where it is currently that variant's local hour, matching
+# the backtest. The ledger (ledger/paper.db) is committed back to the repo.
 on:
   schedule:
-    - cron: "7 19-23 * * *"
+    - cron: "7 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -29,7 +29,7 @@ jobs:
       - name: Settle finished trades, then paper-trade longshots
         run: |
           python -m kalshi_weather --data ledger settle
-          python -m kalshi_weather --data ledger paper --strategy longshot --at-local-hour 15
+          python -m kalshi_weather --data ledger paper --strategy longshot --scheduled
           python -m kalshi_weather --data ledger report
       - name: Save ledger
         run: |

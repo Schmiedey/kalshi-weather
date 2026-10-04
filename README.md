@@ -98,45 +98,56 @@ beat the market (model Brier 0.129 vs market 0.106). What does show up is the
 favorite-longshot bias: brackets priced at a few cents settle YES less often
 than their price implies (mid under 5c: 1.1% won vs 2.8% implied).
 
-Rule: at 3pm local the day before, **buy NO on every bracket whose best YES bid is
-1-4c**, paying 1 - YES bid, sized to what the book offers.
+Rule: on the day before the event, **buy NO on every bracket whose best YES bid
+is 1-4c**, paying 1 - YES bid, sized to what the book offers.
 
-| Test (10 contracts per trade, after fees and spread) | Trades | Losses | c/contract | 90% CI |
-|---|---|---|---|---|
-| First 90 days | 946 | 12 | +0.92 | +0.23 to +1.54 |
-| Last 90 days | 1,164 | 14 | +0.76 | +0.16 to +1.28 |
-| Same rule at 11am / 1pm the day before | ~2,200 | ~35 | +0.48 / +0.56 | both above 0 |
-| All 180 days | 2,110 | 26 | +0.83 | +0.37 to +1.27 |
+The same rule at different local hours on the day before (180 days, 7 cities,
+10 contracts per trade, after fees and spread):
 
-All 7 cities were positive. Expect roughly +0.5-0.8c per contract, about 12
-trades a day across 7 cities. Each win earns 1-4c; each loss costs 96-99c, so
-a bad week can wipe out a month of gains. Ideas that did **not** hold up: the
-forecast model (alone or as a filter on longshots), buying favorites, bracket-sum
-arbitrage, and buying NO on brackets the station readings had already ruled
-out (they had no bids left by then).
+| Hour | Trades | Losses | c/contract | 90% CI | 1st / 2nd half |
+|---|---|---|---|---|---|
+| noon | 2,213 | 36 | +0.48 | +0.03 to +0.94 | +0.88 / +0.14 |
+| 3pm | 2,110 | 26 | +0.83 | +0.37 to +1.27 | +0.92 / +0.76 |
+| **5pm** | 2,114 | 19 | **+1.09** | +0.70 to +1.47 | +0.99 / +1.18 |
+| 7pm | 2,157 | 20 | +1.02 | +0.63 to +1.38 | +1.18 / +0.87 |
+| 9pm | 2,139 | 23 | +0.83 | +0.37 to +1.27 | +0.94 / +0.73 |
+| 11pm | 2,133 | 29 | +0.55 | +0.07 to +1.01 | +0.45 / +0.65 |
+
+All 7 cities were positive. By 9am on the event day the edge is gone (+0.11c,
+CI -0.41 to +0.61). Each win earns 1-4c; each loss costs 96-99c, so a bad week
+can wipe out a month of gains. Because I tested many ideas and hours, the real
+edge is probably smaller than these numbers; about 1,500 live trades are needed
+to tell a ~0.5c edge from zero.
+
+Ideas that did **not** hold up: the forecast model (alone, blended with the
+market, or as a filter on longshots), buying favorites, wider longshots (5-10c),
+bracket-sum arbitrage, and buying NO on brackets the station readings had already
+ruled out (they had no bids left by then).
+
+All six hours run as separate paper variants (`VARIANTS` in `longshot.py`), each
+with its own ledger name. They mostly trade the same brackets, so they show which
+timing works best; real money should use one of them, not all.
 
 ```bash
 python -m kalshi_weather backtest --strategy longshot --days 180
-python -m kalshi_weather paper --strategy longshot --contracts 10
-python -m kalshi_weather report      # per-strategy results; "edge vs market" is the number to watch
+python -m kalshi_weather backtest --strategy longshot --hour 17
+python -m kalshi_weather paper --strategy longshot --variant longshot_5pm   # trade now
+python -m kalshi_weather paper --strategy longshot --scheduled             # each variant at its hour
+python -m kalshi_weather report      # per-variant results; "edge vs market" is the number to watch
 ```
-
-To match the backtest (3pm in each city's own time zone), run it hourly and let
-it pick the cities where it is 3pm:
-
-`5 * * * * cd ~/Documents/kalshi-weather && .venv/bin/python -m kalshi_weather settle && .venv/bin/python -m kalshi_weather paper --strategy longshot --at-local-hour 15`
 
 ## Running it for free on GitHub Actions (laptop can be off)
 
-`.github/workflows/paper.yml` runs on GitHub's servers every hour from 19:07 to
-23:07 UTC. Each run settles finished trades, paper-trades longshots in the cities
-where it is 3pm local, and commits the ledger to `ledger/paper.db`. To see results,
+`.github/workflows/paper.yml` runs on GitHub's servers every hour. Each run settles
+finished trades, runs each longshot variant in the cities where it is currently
+that variant's local hour, and commits the ledger to `ledger/paper.db`. To see results,
 open the latest run's log in the Actions tab (the `report` step), or pull the
 repo and run `python -m kalshi_weather --data ledger report`.
 
-Cost: free on a public repo. On a private repo it uses about 150 of the monthly
-free Actions minutes (5 short runs a day). GitHub can start scheduled runs late
-when it is busy; a run that starts after 4pm local skips that city for the day.
+Cost: free on a public repo (hourly runs of under a minute; a private repo would
+use about 720 of the monthly free minutes). GitHub can start scheduled runs late
+when it is busy; a run that slips past the hour skips that variant for that city
+that day.
 
 ## How it works
 

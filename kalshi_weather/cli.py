@@ -36,7 +36,7 @@ def _backtest_longshot(kalshi, cities, days, hour, data_dir):
     import csv
     import os
     from .longshot import LongshotConfig, backtest_longshot, collect_quotes, summarize
-    cfg = LongshotConfig()
+    cfg = LongshotConfig(hour=hour)
     end = date.today() - timedelta(days=2)
     start = end - timedelta(days=days)
     trades = []
@@ -84,6 +84,9 @@ def main(argv=None):
     pp.add_argument("--prob", choices=["model", "blend"], default="model")
     pp.add_argument("--strategy", choices=["model", "longshot"], default="model")
     pp.add_argument("--contracts", type=int, default=10)
+    pp.add_argument("--variant", default="all", help="longshot variant name, or 'all'")
+    pp.add_argument("--scheduled", action="store_true",
+                    help="longshot: each variant trades only cities currently at its local hour")
     pp.add_argument("--at-local-hour", type=int, default=None,
                     help="only trade cities where it is currently this hour locally (for an hourly cron)")
 
@@ -134,8 +137,19 @@ def main(argv=None):
             print(f"no city is at local hour {a.at_local_hour} right now")
             return
     if a.cmd == "paper" and a.strategy == "longshot":
-        from .longshot import LongshotConfig, run_longshot_paper
-        placed = run_longshot_paper(kalshi, ledger, cities, LongshotConfig(contracts=a.contracts))
+        from dataclasses import replace as _replace
+        from .longshot import VARIANTS, due_cities, run_longshot_paper
+        names = list(VARIANTS) if a.variant == "all" else [a.variant]
+        if any(n not in VARIANTS for n in names):
+            raise SystemExit(f"unknown variant; choose from {list(VARIANTS)} or all")
+        placed = []
+        for n in names:
+            cfg = _replace(VARIANTS[n], contracts=a.contracts)
+            todo = due_cities(cities, cfg.hour) if a.scheduled else cities
+            if todo:
+                placed += run_longshot_paper(kalshi, ledger, todo, cfg)
+            else:
+                print(f"{n}: no city is at {cfg.hour}:00 local right now")
         print(f"\n{len(placed)} longshot paper trade(s) placed.")
     elif a.cmd == "paper":
         from .paper import load_blend_weights, load_params, run_paper
@@ -155,6 +169,6 @@ def main(argv=None):
                 print(f"{k:>18}: {round(v, 4) if isinstance(v, float) else v}")
             if s["settled"] and s["settled"] < 100:
                 print(f"Only {s['settled']} settled trades - need 100+ before trusting the result.")
-            if strat == "longshot" and s["settled"]:
+            if strat.startswith("longshot") and s["settled"]:
                 print(f"{'edge vs market':>18}: {round(s['pnl'] - s['expected_pnl'], 2)} "
                       "(realized P&L minus the market-implied baseline)")
