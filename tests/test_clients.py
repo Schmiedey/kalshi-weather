@@ -131,3 +131,22 @@ def test_candles_skip_live_endpoint_for_known_historical_markets():
     k = KalshiClient("https://x", session=Session(h), min_interval=0)
     out = k.candles("S", "T", 0, 5, cache=False, close_time="2026-06-01T04:00:00Z")
     assert out == [{"ts": 5, "yes_bid": 0.02, "yes_ask": 0.03}]
+
+
+def test_network_errors_are_retried(tmp_path, monkeypatch):
+    import requests
+    import kalshi_weather.kalshi as km
+    monkeypatch.setattr(km.time, "sleep", lambda s: None)
+    state = {"n": 0}
+
+    def h(url, p):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise requests.ReadTimeout("slow")
+        if state["n"] == 2:
+            raise requests.ConnectionError("reset")
+        return Resp({"markets": [{"ticker": "A", "event_ticker": "X-25OCT03"}], "cursor": ""})
+
+    k = KalshiClient(session=Session(h), cache_dir=str(tmp_path), min_interval=0)
+    assert [m.ticker for m in k.markets("X", status="settled")] == ["A"]
+    assert k.throttled == 2

@@ -142,7 +142,12 @@ class KalshiClient:
             if wait > 0:
                 time.sleep(wait)
             self._last = time.time()
-            r = self.session.get(url, params=params, timeout=20)
+            try:
+                r = self.session.get(url, params=params, timeout=20)
+            except (requests.ConnectionError, requests.Timeout):
+                self.throttled += 1
+                time.sleep(min(2 ** attempt, 30))
+                continue
             if r.status_code == 429 or r.status_code >= 500:
                 self.throttled += 1
                 time.sleep(min(2 ** attempt, 30))
