@@ -125,6 +125,8 @@ def main(argv=None):
     lb.add_argument("--hour", type=int, default=17)
     lb.add_argument("--end", default="2026-10-02", help="last event date (fixed so the cache is reused)")
     lb.add_argument("--name", default=None, help="experiment name for the registry")
+    ef = sub.add_parser("etf", help="ETF trend-following: update the paper portfolio or backtest")
+    ef.add_argument("--backtest", action="store_true")
     co = sub.add_parser("collect", help="snapshot every open daily temperature market")
     co.add_argument("--root", default="store", help="folder holding archive/")
     br = sub.add_parser("brain", help="review strategies: edge estimates, status, sizing")
@@ -224,6 +226,16 @@ def main(argv=None):
     elif a.cmd == "settle":
         from .paper import settle_open
         print(f"{settle_open(kalshi, ledger)} trade(s) settled.")
+    elif a.cmd == "etf":
+        from .etf import backtest, fetch_all, stats, update_paper
+        closes = fetch_all()
+        if a.backtest:
+            path = backtest(closes, "2008-01")
+            print("trend   ", stats([p["ret"] for p in path]))
+            print("buyhold ", stats([p["ret_buyhold"] for p in path]))
+        else:
+            for row in update_paper(ledger.db, closes):
+                print(f"ETF paper {row['month']}: NAV ${row['nav']:,.2f}")
     elif a.cmd == "brain":
         from .brain import Brain
         from .longshot import VARIANTS
