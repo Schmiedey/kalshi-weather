@@ -95,6 +95,39 @@ def variant_stats(rows: list[dict]) -> dict[str, dict]:
     return out
 
 
+def pending_stats(rows: list[dict]) -> dict[str, dict]:
+    """Open (unsettled) trades per strategy: money at risk and profit if every one wins.
+
+    Nothing here is profit yet. Each trade wins only if its bracket misses.
+    """
+    out = {}
+    for r in rows:
+        if r["status"] != "open":
+            continue
+        o = out.setdefault(r["strategy"], {"trades": 0, "at_risk": 0.0, "if_all_win": 0.0})
+        o["trades"] += 1
+        o["at_risk"] += r["price"] * r["contracts"] + r["fee"]
+        o["if_all_win"] += (1 - r["price"]) * r["contracts"] - r["fee"]
+    return out
+
+
+def _pending_section(pend: dict[str, dict]) -> str:
+    if not pend:
+        return ""
+    h = ["""<h2>Open bets (not profit yet)</h2><div class="card"><table><thead><tr><th>Strategy</th>
+<th>Open trades</th><th>At risk</th><th>Profit if all win</th></tr></thead><tbody>"""]
+    for n in sorted(pend):
+        o = pend[n]
+        h.append(f'<tr><td>{_esc(n)}</td><td>{o["trades"]}</td><td>${o["at_risk"]:,.2f}</td>'
+                 f'<td class="pos">+${o["if_all_win"]:,.2f}</td></tr>')
+    t = {k: sum(o[k] for o in pend.values()) for k in ("trades", "at_risk", "if_all_win")}
+    h.append(f'<tr><td><b>Total</b></td><td>{t["trades"]}</td><td>${t["at_risk"]:,.2f}</td>'
+             f'<td class="pos">+${t["if_all_win"]:,.2f}</td></tr></tbody></table>'
+             '<p class="muted">These bets have not settled. Each wins only if its bracket misses; a single miss '
+             'costs about 97¢ per contract, roughly ten times what a win earns.</p></div>')
+    return "".join(h)
+
+
 def _chart(rows: list[dict], names: list[str], color: dict[str, str]) -> str:
     """Cumulative P&L per variant by settlement time, as inline SVG."""
     series = {}
@@ -354,6 +387,7 @@ Main strategy: bet against brackets priced at 1–4¢ the day before. Fake money
                  f'<span style="width:{pct:.1f}%"></span></div></td></tr>')
     h.append("</tbody></table></div>")
 
+    h.append(_pending_section(pending_stats(rows)))
     h.append(_brain_section(brain or []))
     h.append(_maker_section(maker_stats(rows)))
     recent = sorted((r for r in rows if r["status"] != "expired"), key=lambda r: r["opened_at"], reverse=True)[:25]

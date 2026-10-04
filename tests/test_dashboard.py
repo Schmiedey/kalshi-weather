@@ -60,3 +60,18 @@ def test_maker_collector_and_research_sections(tmp_path):
     page = render([], collector=c, research=[("Idea A", "rejected", "no edge")], repo_url="https://x")
     assert "Maker orders" in page and "Data collector" in page and "2026-10-05 01:37" in page
     assert "Idea A" in page and "https://x/tree/data" in page
+
+
+def test_pending_section_counts_only_open_trades():
+    from kalshi_weather.dashboard import pending_stats
+    rows = [{"strategy": "a", "status": "open", "price": 0.98, "contracts": 10, "fee": 0.02},
+            {"strategy": "a", "status": "open", "price": 0.99, "contracts": 10, "fee": 0.01},
+            {"strategy": "a", "status": "settled", "price": 0.98, "contracts": 10, "fee": 0.02},
+            {"strategy": "b", "status": "resting", "price": 0.98, "contracts": 10, "fee": 0.02}]
+    p = pending_stats(rows)
+    assert set(p) == {"a"} and p["a"]["trades"] == 2
+    assert round(p["a"]["at_risk"], 2) == round(9.82 + 9.91, 2)
+    assert round(p["a"]["if_all_win"], 2) == round(0.18 + 0.09, 2)
+    page = render([dict(r, ticker="T", city="nyc", opened_at="2026-10-04T16:00:00+00:00", side="no", result=None,
+                        pnl=None, prob=0.98) for r in rows[:2]])
+    assert "Open bets (not profit yet)" in page and "+$0.27" in page
