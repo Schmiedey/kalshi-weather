@@ -407,7 +407,6 @@ Main strategy: bet against brackets priced at 1–4¢ the day before. Fake money
     h.append(_pending_section(pending_stats(rows)))
     h.append(_brain_section(brain or []))
     h.append(_maker_section(maker_stats(rows)))
-    h.append(_lip_section(lip))
     recent = sorted((r for r in rows if r["status"] != "expired"), key=lambda r: r["opened_at"], reverse=True)[:25]
     h.append("""<h2>Recent trades</h2><div class="card"><table><thead><tr><th>Opened (UTC)</th>
 <th>Variant</th><th>City</th><th>Bracket</th><th>Side</th><th>Price</th><th>Qty</th><th>Status</th>
@@ -422,7 +421,6 @@ Main strategy: bet against brackets priced at 1–4¢ the day before. Fake money
                  f'<td>${r["price"]:.2f}</td><td>{r["contracts"]}</td><td>{status}</td><td>{pnl}</td></tr>')
     h.append("</tbody></table></div>")
 
-    h.append(_etf_section(etf or []))
     h.append(_research_section(RESEARCH if research is None else research))
     h.append(_lab_section(lab or []))
     h.append(_collector_section(collector, repo_url + "/tree/data" if repo_url else ""))

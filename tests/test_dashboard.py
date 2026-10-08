@@ -37,7 +37,7 @@ def test_brain_etf_and_lab_sections():
     lab = [{"id": 1, "name": "x", "period": "dev", "passed": True}, {"id": 2, "name": "y", "passed": False}]
     page = render([], brain=brain, etf=etf, lab=lab)
     assert "<h2>Brain</h2>" in page and "+1.10 ± 0.30" in page
-    assert "$10,100.00" in page and "SPY, GLD" in page
+    assert "ETF trend portfolio" not in page  # longshot-only since 2026-10-08
     assert "2 strategy tests on record, 1" in page
 
 
