@@ -163,7 +163,7 @@ CREATE TABLE IF NOT EXISTS lip_rewards (
 """
 
 # capital each paper strategy may tie up in resting orders plus filled positions
-BUDGETS = {"lip_1c": 1000.0}
+BUDGETS = {"lip1c": 1000.0}
 MIN_LEFT = 2 * 3600  # seconds a pool must still run when we post (runs are ~hourly)
 
 

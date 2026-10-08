@@ -323,7 +323,7 @@ def _lip_section(lip: list | None) -> str:
 <th>Resting orders</th><th>Cash tied up</th><th>Rewards, last 24h</th><th>Rewards, total</th><th>Fills</th>
 <th>Settled fill P&amp;L</th></tr></thead><tbody>{body}</tbody></table>
 <p class="muted">Kalshi pays a reward pool to resting orders, but only while both sides of a market's book
-are deep enough. The thin side is usually a near-certain loser nobody bids for; <b>lip_1c</b> rests a
+are deep enough. The thin side is usually a near-certain loser nobody bids for; <b>lip1c</b> rests a
 1¢ bid there (about its fair value, at most $10 at risk per market). Rewards are estimated hourly from the
 live book under Kalshi's published scoring; fills come from real trades. Paper only: it cannot prove
 Kalshi would pay, and Kalshi can change the rules or revoke rewards at any time.</p></div>"""

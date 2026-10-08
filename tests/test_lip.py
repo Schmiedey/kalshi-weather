@@ -65,10 +65,10 @@ def test_side_share_reference_discount_and_target_cut():
 
 def test_quotes_only_cheap_thin_sides():
     deep_yes = [(0.97, 3000)]
-    assert lip.quotes("lip_1c", [P], deep_yes, []) == [("no", 0.01)]
-    assert lip.quotes("lip_1c", [P], deep_yes, [(0.03, 100)]) == [("no", 0.03)]
-    assert lip.quotes("lip_1c", [P], deep_yes, [(0.40, 100)]) == []  # not a cheap bid
-    assert lip.quotes("lip_1c", [P], deep_yes, [(0.02, 1000)]) == []  # not thin
+    assert lip.quotes("lip1c", [P], deep_yes, []) == [("no", 0.01)]
+    assert lip.quotes("lip1c", [P], deep_yes, [(0.03, 100)]) == [("no", 0.03)]
+    assert lip.quotes("lip1c", [P], deep_yes, [(0.40, 100)]) == []  # not a cheap bid
+    assert lip.quotes("lip1c", [P], deep_yes, [(0.02, 1000)]) == []  # not thin
 
 
 class PaperK:
@@ -102,7 +102,7 @@ def test_paper_run_places_accrues_fills_and_closes(tmp_path):
     assert abs(r["accrued"] - 100 / 24 / 2) < 1e-6
     assert r["fills"] == 1  # only the YES buy at 99c crosses a 1c NO bid
     t = led.db.execute("SELECT * FROM trades").fetchone()
-    assert (t["strategy"], t["side"], t["contracts"], t["price"]) == ("lip_1c", "no", 40, 0.01)
+    assert (t["strategy"], t["side"], t["contracts"], t["price"]) == ("lip1c", "no", 40, 0.01)
     k.status, k.trades = "closed", []
     r = lip.run_lip_paper(k, led, now=NOW + timedelta(hours=2), log=lambda *a: None)
     assert r["closed"] == 1 and r["placed"] == 0
