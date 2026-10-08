@@ -241,7 +241,3 @@ class KalshiClient:
                 "yes_ask": _candle_price(c.get("yes_ask"), historical),
             })
         return sorted(out, key=lambda x: x["ts"])
-
-    def series_list(self, category: str | None = None) -> list[dict]:
-        params = {"category": category} if category else None
-        return self._get("/series", params).get("series", []) or []

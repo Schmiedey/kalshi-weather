@@ -23,26 +23,14 @@ class LongshotConfig:
     min_yes_bid: float = 0.01     # need a YES bid to sell into (no bid = no NO ask)
     contracts: int = 10
     fee_rate: float = 0.07
-    max_yes_ask: float | None = None   # if set, skip brackets whose YES ask is missing or above this
 
 
-# Variants: the same rule at different local hours on the day before the event.
-# Backtest (180 days, 7 cities, 10 contracts, after fees), c/contract and 90% CI:
+# Backtest (180 days, 7 cities, 10 contracts, after fees), c/contract and 90% CI, by hour:
 #   noon +0.48 [+0.03, +0.94]   3pm +0.83 [+0.37, +1.27]   5pm +1.09 [+0.70, +1.47]
 #   7pm  +1.02 [+0.63, +1.38]   9pm +0.83 [+0.37, +1.27]  11pm +0.55 [+0.07, +1.01]
-# Each passed the bar set before testing: CI above zero and both halves positive.
-# They trade mostly the same brackets, so run them side by side to compare timing,
-# but real money should use one of them, not all.
-VARIANTS = {f"longshot_{label}": LongshotConfig(name=f"longshot_{label}", hour=h)
-            for label, h in (("noon", 12), ("3pm", 15), ("5pm", 17), ("7pm", 19),
-                             ("9pm", 21), ("11pm", 23))}
-
-# Forward test, registered 2026-10-04 before any of its trades (lab experiment
-# "longshot41_5pm"). On the 41 newer, thinner series the plain rule lost money
-# (-0.6c to -0.7c): many brackets there show a 1-4c bid with a 65-95c ask, i.e. no real
-# market. This variant needs a YES ask of 10c or less and is judged only on paper
-# trades placed from now on, never on the data that suggested it.
-FORWARD = {"longshot41_5pm": LongshotConfig(name="longshot41_5pm", hour=17, max_yes_ask=0.10)}
+# All passed the bar set before testing (CI above zero, both halves positive). They trade
+# mostly the same brackets, so only the strongest, 5pm, is kept (2026-10-08).
+VARIANTS = {"longshot_5pm": LongshotConfig(name="longshot_5pm", hour=17)}
 
 
 def due_cities(cities, hour: int, now=None) -> list:
@@ -54,15 +42,13 @@ def due_cities(cities, hour: int, now=None) -> list:
 
 
 def longshot_signal(ticker: str, event_ticker: str, yes_bid: float | None, cfg: LongshotConfig,
-                    available: float | None = None, yes_ask: float | None = None) -> Signal | None:
+                    available: float | None = None) -> Signal | None:
     """NO order at 1 - yes_bid, sized to what the book can fill.
 
     `prob` is the market-implied NO probability (1 - yes_bid), so the ledger's
     expected P&L is the no-edge baseline and realized minus expected is the edge.
     """
     if yes_bid is None or not (cfg.min_yes_bid <= yes_bid < cfg.max_yes_bid):
-        return None
-    if cfg.max_yes_ask is not None and (yes_ask is None or yes_ask > cfg.max_yes_ask):
         return None
     n = cfg.contracts if available is None else min(cfg.contracts, int(available))
     if n < 1:
@@ -111,7 +97,7 @@ def backtest_longshot(rows: list[dict], cfg: LongshotConfig) -> list[dict]:
     """rows: dicts with city, date, event, ticker, bid (YES bid at decision), result ('yes'/'no')."""
     trades = []
     for r in rows:
-        sig = longshot_signal(r["ticker"], r["event"], r["bid"], cfg, yes_ask=r.get("ask"))
+        sig = longshot_signal(r["ticker"], r["event"], r["bid"], cfg)
         if sig is None:
             continue
         pnl = settle_pnl("no", sig.price, sig.contracts, sig.fee, r["result"])
@@ -122,6 +108,13 @@ def backtest_longshot(rows: list[dict], cfg: LongshotConfig) -> list[dict]:
 
 
 DAY_BEFORE_HOURS = (11, 23)   # one cached candle window per bracket covers all decision hours
+
+
+def decision_ts(d, city, hour: int) -> int:
+    """Unix time of `hour` local on the day before event day `d`."""
+    from datetime import datetime, time, timedelta
+    from zoneinfo import ZoneInfo
+    return int(datetime.combine(d - timedelta(days=1), time(hour), ZoneInfo(city.tz)).timestamp())
 
 
 def day_before_candles(kalshi, city, bracket, d):
@@ -146,7 +139,6 @@ def quote_from_candles(candles: list[dict], ts: int, lookback: int = 4 * 3600):
 def collect_quotes(kalshi, city, start, end, decision_hour: int = 15) -> list[dict]:
     """YES bid/ask for every settled bracket at `decision_hour` local on the day before."""
     from datetime import datetime, time, timedelta, timezone
-    from .backtest import decision_ts
     from .kalshi import event_date
     if not DAY_BEFORE_HOURS[0] <= decision_hour <= DAY_BEFORE_HOURS[1]:
         raise ValueError(f"decision_hour must be within {DAY_BEFORE_HOURS}")
@@ -166,7 +158,6 @@ def collect_quotes(kalshi, city, start, end, decision_hour: int = 15) -> list[di
 
 def run_longshot_paper(kalshi, ledger, cities, cfg: LongshotConfig, now=None, log=print) -> list:
     """Paper-buy NO on tomorrow's longshot brackets at the live order book."""
-    from collections import defaultdict as _dd
     from datetime import datetime, timedelta, timezone
     from zoneinfo import ZoneInfo
     from .kalshi import event_date
@@ -184,8 +175,7 @@ def run_longshot_paper(kalshi, ledger, cities, cfg: LongshotConfig, now=None, lo
             if ledger.has_ticker(b.ticker, cfg.name):
                 continue
             q = kalshi.orderbook(b.ticker)
-            sig = longshot_signal(b.ticker, b.event_ticker, q["yes_bid"], cfg, q["yes_bid_qty"],
-                                  yes_ask=q.get("yes_ask"))
+            sig = longshot_signal(b.ticker, b.event_ticker, q["yes_bid"], cfg, q["yes_bid_qty"])
             if sig is None:
                 continue
             ledger.record(city.key, sig, strategy=cfg.name)
@@ -196,3 +186,15 @@ def run_longshot_paper(kalshi, ledger, cities, cfg: LongshotConfig, now=None, lo
         if not n:
             log(f"[{city.key}] {cfg.name} {target}: no longshot brackets (YES bid < {cfg.max_yes_bid:.2f})")
     return placed
+
+
+def settle_open(kalshi, ledger, log=print) -> int:
+    """Settle open paper trades whose market has a result."""
+    n = 0
+    for t in ledger.open_trades():
+        m = kalshi.market(t["ticker"])
+        if m.result in ("yes", "no"):
+            pnl = ledger.settle(t["id"], m.result)
+            n += 1
+            log(f"settled {t['ticker']} {t['side']} -> {m.result}: ${pnl:+.2f}")
+    return n

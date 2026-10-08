@@ -12,9 +12,7 @@ from datetime import datetime, timezone
 from .longshot import VARIANTS
 
 # Backtest reference (180 days, 7 cities, after fees): cents per contract and 90% CI.
-BACKTEST = {"longshot_noon": (0.48, 0.03, 0.94), "longshot_3pm": (0.83, 0.37, 1.27),
-            "longshot_5pm": (1.09, 0.70, 1.47), "longshot_7pm": (1.02, 0.63, 1.38),
-            "longshot_9pm": (0.83, 0.37, 1.27), "longshot_11pm": (0.55, 0.07, 1.01)}
+BACKTEST = {"longshot_5pm": (1.09, 0.70, 1.47)}
 TRADES_NEEDED = 1500          # rough count before a ~0.5c edge is distinguishable from zero
 SLOTS = 8                     # categorical palette slots, assigned in fixed order
 
@@ -187,9 +185,7 @@ def _chart(rows: list[dict], names: list[str], color: dict[str, str]) -> str:
     return "".join(out)
 
 
-STRATEGIES = list(VARIANTS) + ["maker_5pm", "poly_longshot"]
-BACKTEST["maker_5pm"] = (2.15, 1.37, 2.80)
-BACKTEST["poly_longshot"] = (0.57, 0.16, 0.91)      # assumed 0.5c slippage; live asks ~0.3c worse
+STRATEGIES = list(VARIANTS)
 
 
 def _brain_section(brain: list[dict]) -> str:
@@ -208,155 +204,8 @@ def _brain_section(brain: list[dict]) -> str:
     return "".join(h)
 
 
-def _etf_section(etf: list[dict]) -> str:
-    if not etf:
-        return ""
-    import json as _json
-    last = etf[-1]
-    held = {k: v for k, v in _json.loads(etf[-1]["weights"] or "{}").items() if v}
-    h = [f"""<h2>ETF trend portfolio (paper)</h2><div class="card"><p class="note">Holds each of SPY, EFA,
-IEF, GLD, DBC only while above its 10-month average. Backtest 2008–2026: 5.3% a year with an 11%
-worst drop (buy-and-hold: 6.3%, 31%). Paper NAV <b>${last['nav']:,.2f}</b> as of {last['month']};
-holding {_esc(', '.join(held) or 'cash')}.</p><table><thead><tr><th>Month</th><th>NAV</th></tr></thead><tbody>"""]
-    for r in etf[-12:][::-1]:
-        h.append(f'<tr><td>{_esc(r["month"])}</td><td>${r["nav"]:,.2f}</td></tr>')
-    h.append("</tbody></table></div>")
-    return "".join(h)
-
-
-def _lab_section(lab: list[dict]) -> str:
-    if not lab:
-        return ""
-    passed = sum(1 for e in lab if e.get("passed"))
-    lab = [e | {"passed": e.get("passed", False)} for e in lab]
-    h = [f"""<h2>Lab</h2><div class="card"><p class="note">{len(lab)} strategy tests on record, {passed}
-passed. Every test is kept, so a pass is read against how many ideas were tried.</p><table><thead><tr>
-<th>#</th><th>Test</th><th>Period</th><th>Verdict</th></tr></thead><tbody>"""]
-    for e in lab[::-1][:15]:
-        v = "pending" if e.get("passed") is None else "pass" if e["passed"] else "fail"
-        h.append(f'<tr><td>{e["id"]}</td><td>{_esc(e["name"])}</td><td>{_esc(e.get("period", ""))}</td>'
-                 f'<td class="{ {"pass": "pos", "fail": "neg"}.get(v, "")}">{v}</td></tr>')
-    h.append("</tbody></table></div>")
-    return "".join(h)
-
-
-# Every idea tested so far, in plain words: (idea, verdict, detail). Updated as lab results come in.
-RESEARCH = [
-    ("Weather forecast model (GFS, ECMWF, ICON)", "rejected",
-     "Kalshi prices were more accurate than the forecasts (Brier 0.106 vs 0.129)."),
-    ("Longshot: sell 1–4¢ brackets the day before (7 big cities)", "paper trading",
-     "+0.5 to +1.1¢ per contract after fees over 180 days; positive in both halves and every city."),
-    ("Maker longshot: post an order 1¢ better, wait for a fill", "paper trading",
-     "+2.15¢ per contract in development data; final exam +1.0¢ on 65 trades, too few to be sure."),
-    ("Longshot on the 41 other Kalshi temperature markets", "rejected",
-     "Lost 0.6–0.7¢ per contract (11,575 trades). Those markets are thin: many 1–4¢ bids have no "
-     "real seller behind them (asks of 65–95¢)."),
-    ("Same, only where the ask is 10¢ or less (longshot41_5pm)", "forward test",
-     "Idea came from the failure above, so it is judged only on paper trades from now on."),
-    ("Polymarket longshot", "forward test",
-     "Backtest +0.57¢ (CI +0.16 to +0.91) with an assumed cost; real asks are ~0.3¢ worse, so the "
-     "edge may be near zero. Paper-trading at real asks (poly_longshot)."),
-    ("Machine learning on market prices (calibration, boosting)", "rejected",
-     "All 48 markets: slightly better Brier than the market (0.1041 vs 0.1056) but no profit after "
-     "costs (CI includes zero, first half negative)."),
-    ("Forecast/market blend, favorites, bracket arbitrage", "rejected", "No edge after fees."),
-    ("Day-of trading with live station observations", "rejected",
-     "Brackets already ruled out by the weather never had buyers to sell to."),
-    ("Kalshi vs Polymarket arbitrage", "not possible",
-     "The two sites settle on different weather stations, so price gaps are not free money."),
-    ("ETF trend (hold only what is above its 10-month average)", "paper trading",
-     "2008–2026: 5.3% a year with an 11% worst drop, vs 6.3% and 31% for buy-and-hold."),
-]
-
-
-def maker_stats(rows: list[dict], strategy: str = "maker_5pm") -> dict:
-    m = [r for r in rows if r["strategy"] == strategy]
-    filled = sum(1 for r in m if r["status"] in ("open", "settled"))
-    expired = sum(1 for r in m if r["status"] == "expired")
-    return {"resting": sum(1 for r in m if r["status"] == "resting"), "filled": filled,
-            "expired": expired, "fill_rate": filled / (filled + expired) if filled + expired else None}
-
-
-def collector_health(root: str, now: datetime | None = None) -> dict | None:
-    """Hourly snapshots stored under `root`/archive, and a look inside the newest one."""
-    import glob
-    import gzip
-    import json
-    import os
-    files = sorted(glob.glob(os.path.join(root, "archive", "*", "*.jsonl.gz")))
-    if not files:
-        return None
-
-    def ts(p: str) -> datetime:
-        day = os.path.basename(os.path.dirname(p))
-        return datetime.strptime(day + os.path.basename(p)[:4], "%Y-%m-%d%H%M").replace(tzinfo=timezone.utc)
-
-    with gzip.open(files[-1], "rt") as f:
-        rows = [json.loads(line) for line in f]
-    last = ts(files[-1])
-    return {"snapshots": len(files), "days": len({os.path.dirname(p) for p in files}),
-            "first": ts(files[0]), "last": last,
-            "age_h": ((now or datetime.now(timezone.utc)) - last).total_seconds() / 3600,
-            "markets": len(rows),
-            "series": len({(r.get("event_ticker") or "").split("-")[0] for r in rows} - {""}),
-            "with_bid": sum(1 for r in rows if float(r.get("yes_bid_dollars") or 0) > 0)}
-
-
-def _maker_section(m: dict) -> str:
-    rate = "—" if m["fill_rate"] is None else f'{m["fill_rate"]:.0%}'
-    return f"""<h2>Maker orders (maker_5pm)</h2><div class="card"><table><thead><tr><th>Waiting for a fill</th>
-<th>Filled</th><th>Expired unfilled</th><th>Fill rate</th></tr></thead><tbody><tr><td>{m["resting"]}</td>
-<td>{m["filled"]}</td><td>{m["expired"]}</td><td>{rate}</td></tr></tbody></table>
-<p class="muted">Instead of paying the asking price, this strategy posts its own order 1¢ better and waits.
-An order only counts as filled if a real trade on Kalshi reaches its price before the market closes;
-unfilled orders expire and cost nothing.</p></div>"""
-
-
-def _lip_section(lip: list | None) -> str:
-    if not lip:
-        return ""
-    body = "".join(
-        f'<tr><td>{r["strategy"]}</td><td>{r["resting"]}</td><td>${r["capital"]:,.0f}</td>'
-        f'<td>${r["rewards_24h"]:,.2f}</td><td>${r["rewards"]:,.2f}</td><td>{r["fills"]}</td>'
-        f'<td class="{"pos" if r["fill_pnl"] >= 0 else "neg"}">${r["fill_pnl"]:+,.2f}</td></tr>' for r in lip)
-    return f"""<h2>Liquidity rewards (paper)</h2><div class="card"><table><thead><tr><th>Strategy</th>
-<th>Resting orders</th><th>Cash tied up</th><th>Rewards, last 24h</th><th>Rewards, total</th><th>Fills</th>
-<th>Settled fill P&amp;L</th></tr></thead><tbody>{body}</tbody></table>
-<p class="muted">Kalshi pays a reward pool to resting orders, but only while both sides of a market's book
-are deep enough. The thin side is usually a near-certain loser nobody bids for; <b>lip1c</b> rests a
-1¢ bid there (about its fair value, at most $10 at risk per market). Rewards are estimated hourly from the
-live book under Kalshi's published scoring; fills come from real trades. Paper only: it cannot prove
-Kalshi would pay, and Kalshi can change the rules or revoke rewards at any time.</p></div>"""
-
-
-def _collector_section(c: dict | None, data_url: str = "") -> str:
-    if not c:
-        return ""
-    fresh = "pos" if c["age_h"] < 3 else "neg"
-    link = f' · <a href="{_esc(data_url)}">raw data</a>' if data_url else ""
-    return f"""<h2>Data collector</h2><div class="card"><table><thead><tr><th>Snapshots</th><th>Days</th>
-<th>Last snapshot (UTC)</th><th>Markets in last</th><th>With a YES bid</th><th>Series</th></tr></thead><tbody>
-<tr><td>{c["snapshots"]:,}</td><td>{c["days"]}</td><td class="{fresh}">{c["last"].strftime("%Y-%m-%d %H:%M")}
-({c["age_h"]:.1f}h ago)</td><td>{c["markets"]}</td><td>{c["with_bid"]}</td><td>{c["series"]}</td></tr>
-</tbody></table><p class="muted">Every hour, prices for every open Kalshi daily temperature market are saved,
-since {c["first"].strftime("%Y-%m-%d")}. This builds a private history that future tests can use{link}.</p></div>"""
-
-
-def _research_section(research: list[tuple[str, str, str]]) -> str:
-    cls = {"paper trading": "pos", "forward test": "pos", "rejected": "neg", "not possible": "neg"}
-    h = ["""<h2>What has been tested</h2><div class="card"><table><thead><tr><th>Idea</th><th>Verdict</th>
-<th style="text-align:left">Evidence</th></tr></thead><tbody>"""]
-    for idea, verdict, detail in research:
-        h.append(f'<tr><td>{_esc(idea)}</td><td class="{cls.get(verdict, "")}">{_esc(verdict)}</td>'
-                 f'<td style="text-align:left;white-space:normal">{_esc(detail)}</td></tr>')
-    h.append("</tbody></table></div>")
-    return "".join(h)
-
-
 def render(rows: list[dict], now: datetime | None = None, repo_url: str = "",
-           brain: list[dict] | None = None, etf: list[dict] | None = None,
-           lab: list[dict] | None = None, collector: dict | None = None,
-           research: list | None = None, lip: list | None = None) -> str:
+           brain: list[dict] | None = None) -> str:
     now = now or datetime.now(timezone.utc)
     stats = variant_stats(rows)
     names = STRATEGIES + sorted(n for n in stats if n not in STRATEGIES)
@@ -365,23 +214,22 @@ def render(rows: list[dict], now: datetime | None = None, repo_url: str = "",
     settled = [r for r in long_rows if r["status"] == "settled"]
     first = min((r["opened_at"] for r in rows), default=None)
     days = (now - datetime.fromisoformat(first)).days + 1 if first else 0
-    best = max((n for n in STRATEGIES if stats.get(n, {}).get("settled")),
-               key=lambda n: stats[n]["edge"], default=None)
+    losses = sum(1 for r in settled if r["side"] != r["result"])
 
     tiles = [("Paper trades", f"{len(long_rows):,}"), ("Settled", f"{len(settled):,}"),
              ("Days running", f"{days}"),
-             ("Leading variant", best.replace("longshot_", "") if best else "—")]
+             ("Loss rate", f"{100 * losses / len(settled):.1f}%" if settled else "—")]
     h = [f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Kalshi Weather Paper Trading</title><style>{CSS}</style></head><body><main>
 <h1>Kalshi weather · paper trading</h1>
 <p class="sub">A self-running research and paper-trading system for Kalshi daily temperature markets.
-Main strategy: bet against brackets priced at 1–4¢ the day before. Fake money, real prices.</p>
+One strategy: at 5pm local the day before, bet against brackets priced at 1–4¢. Fake money, real prices.</p>
 <p class="muted">Updated {now.strftime('%Y-%m-%d %H:%M UTC')} · 10 contracts per trade</p>
 <div class="tiles">"""]
     for k, v in tiles:
         h.append(f'<div class="tile"><div class="k">{_esc(k)}</div><div class="v">{_esc(v)}</div></div>')
-    h.append('</div><h2>Cumulative P&amp;L by variant</h2><div class="card"><ul class="legend">')
+    h.append('</div><h2>Cumulative P&amp;L</h2><div class="card"><ul class="legend">')
     for n in STRATEGIES:
         h.append(f'<li><span class="sw" style="background:{color[n]}"></span>{_esc(n.replace("longshot_", ""))}</li>')
     h.append(f'</ul>{_chart(rows, STRATEGIES, color)}</div>')
@@ -406,7 +254,6 @@ Main strategy: bet against brackets priced at 1–4¢ the day before. Fake money
 
     h.append(_pending_section(pending_stats(rows)))
     h.append(_brain_section(brain or []))
-    h.append(_maker_section(maker_stats(rows)))
     recent = sorted((r for r in rows if r["status"] != "expired"), key=lambda r: r["opened_at"], reverse=True)[:25]
     h.append("""<h2>Recent trades</h2><div class="card"><table><thead><tr><th>Opened (UTC)</th>
 <th>Variant</th><th>City</th><th>Bracket</th><th>Side</th><th>Price</th><th>Qty</th><th>Status</th>
@@ -421,32 +268,21 @@ Main strategy: bet against brackets priced at 1–4¢ the day before. Fake money
                  f'<td>${r["price"]:.2f}</td><td>{r["contracts"]}</td><td>{status}</td><td>{pnl}</td></tr>')
     h.append("</tbody></table></div>")
 
-    h.append(_research_section(RESEARCH if research is None else research))
-    h.append(_lab_section(lab or []))
-    h.append(_collector_section(collector, repo_url + "/tree/data" if repo_url else ""))
     h.append(f"""<h2>How to read this</h2><div class="note">
 <p><b>Edge vs market</b> is P&amp;L minus what the market prices implied (the fees you would pay
 with zero edge). Above zero means the strategy beats the market; it's the number that matters.</p>
 <p>Each win earns 1–4¢ per contract and each loss costs about 97¢, so results jump around.
-A real edge of about half a cent only becomes clear after roughly {TRADES_NEEDED:,} settled trades
-per variant. Before that, a good or bad week is mostly luck.</p>
-<p>The variants trade mostly the same brackets at different hours, so they move together.
-They show the best time of day to trade; real money would use one of them.</p>
+A real edge of about half a cent only becomes clear after roughly {TRADES_NEEDED:,} settled trades.
+Before that, a good or bad week is mostly luck. The backtest loss rate was about 1.2%; a loss rate
+well above 2–3% after many trades means the edge is gone.</p>
 {f'<p class="muted"><a href="{_esc(repo_url)}">Source code and ledger</a></p>' if repo_url else ''}
 </div></main></body></html>""")
     return "".join(h)
 
 
-def _lip_rows(db) -> list:
-    from .lip import paper_summary
-    rows = paper_summary(db)
-    return rows if any(r["resting"] or r["rewards"] or r["fills"] for r in rows) else []
-
-
-def build(ledger_path: str, out_path: str, repo_url: str = "", store: str | None = None) -> int:
+def build(ledger_path: str, out_path: str, repo_url: str = "") -> int:
     import os
     from .brain import Brain, p_best
-    from .lab import load
     from .ledger import Ledger
     led = Ledger(ledger_path)
     rows = [dict(r) for r in led.db.execute("SELECT * FROM trades")]
@@ -457,13 +293,7 @@ def build(ledger_path: str, out_path: str, repo_url: str = "", store: str | None
     brain = [{"strategy": n, "status": st, "settled": e.trades, "post_c": 100 * e.post_mean,
               "post_sd_c": 100 * e.post_sd, "p_pos": e.p_positive, "p_best": pb.get(n, 0.0),
               "size": br.sized(n, 0.97, STRATEGIES)} for n, (st, e, _) in reviews.items()]
-    try:
-        etf = [dict(r) for r in led.db.execute("SELECT * FROM etf_nav ORDER BY month")]
-    except Exception:
-        etf = []
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w") as f:
-        f.write(render(rows, repo_url=repo_url, brain=brain, etf=etf, lab=load(),
-                       collector=collector_health(store) if store else None,
-                       lip=_lip_rows(led.db)))
+        f.write(render(rows, repo_url=repo_url, brain=brain))
     return len(rows)

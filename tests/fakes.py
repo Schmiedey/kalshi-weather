@@ -1,4 +1,4 @@
-"""Synthetic Kalshi + weather data for offline tests.
+"""Synthetic Kalshi data for offline tests.
 
 Simulates daily-high events with 6 brackets. The true high = forecast + noise.
 `market_sigma` controls how the simulated market prices brackets: equal to the
@@ -7,13 +7,19 @@ true sigma = efficient market (no edge); larger = market is miscalibrated.
 import math
 import random
 from dataclasses import replace
-from datetime import date, datetime, time, timedelta
-from zoneinfo import ZoneInfo
+from datetime import timedelta
 
 from kalshi_weather.kalshi import Bracket
-from kalshi_weather.model import bracket_prob
 
 MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+
+
+def bracket_prob(b, mu, sigma):
+    """Normal probability of an integer-temperature bracket (less / between / greater)."""
+    cdf = lambda x: 0.5 * (1.0 + math.erf((x - mu) / (sigma * math.sqrt(2.0))))
+    if b.strike_type == "between":
+        return cdf(b.cap + 0.5) - cdf(b.floor - 0.5)
+    return 1.0 - cdf(b.floor + 0.5) if b.strike_type == "greater" else cdf(b.cap - 0.5)
 
 
 def ev_ticker(series, d):
@@ -87,14 +93,3 @@ class FakeKalshi:
                 if b.ticker == ticker:
                     return b
         raise KeyError(ticker)
-
-
-class FakeWeather:
-    def __init__(self, world):
-        self.w = world
-
-    def historical_highs(self, city, start, end, **kw):
-        return {d: v for d, v in self.w.forecasts.items() if start <= d <= end}
-
-    def forecast_highs(self, city, days=3):
-        return dict(self.w.forecasts)

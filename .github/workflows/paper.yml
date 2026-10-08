@@ -1,9 +1,7 @@
 name: paper-trade
 
-# Runs every hour. Each longshot variant (see VARIANTS in kalshi_weather/longshot.py)
-# only trades the cities where it is currently that variant's local hour, matching
-# the backtest. Only Kalshi longshot strategies run (Polymarket, LIP and ETF stopped
-# 2026-10-08). The ledger (ledger/paper.db) is committed back to the repo.
+# Runs every hour. The longshot strategy (VARIANTS in kalshi_weather/longshot.py) only
+# trades the cities where it is currently 5pm local, matching the backtest. The ledger (ledger/paper.db) is committed back to the repo.
 on:
   schedule:
     - cron: "5 * * * *"
@@ -36,8 +34,7 @@ jobs:
       - name: Settle finished trades, then paper-trade longshots
         run: |
           python -m kalshi_weather --data ledger settle
-          python -m kalshi_weather --data ledger paper --strategy longshot --scheduled
-          python -m kalshi_weather --data ledger paper --strategy maker --scheduled
+          python -m kalshi_weather --data ledger paper --scheduled
           python -m kalshi_weather --data ledger report
           python -m kalshi_weather --data ledger brain --alerts alerts.txt
       - name: Open an issue if the brain stopped a strategy
@@ -56,8 +53,7 @@ jobs:
           git diff --cached --quiet || (git commit -m "Update paper ledger" && git pull --rebase && git push)
       - name: Build dashboard
         run: |
-          if git fetch -q --depth 1 origin data; then git worktree add -q --detach store FETCH_HEAD; fi
-          python -m kalshi_weather --data ledger dashboard --out site/index.html --store store \
+          python -m kalshi_weather --data ledger dashboard --out site/index.html \
             --repo-url "https://github.com/${{ github.repository }}"
       - uses: actions/upload-pages-artifact@v3
         with:

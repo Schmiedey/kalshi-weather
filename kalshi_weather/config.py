@@ -1,4 +1,4 @@
-"""Cities, endpoints and strategy settings.
+"""Cities and endpoints.
 
 Station coordinates are the official NWS stations Kalshi settles on (per each
 market's rules). Verify them against the rules on kalshi.com before going live.
@@ -29,17 +29,3 @@ CITIES = {c.key: c for c in [
     City("lax", "KXHIGHLAX", "Los Angeles (LAX)", 33.9382, -118.3866, "America/Los_Angeles", "KLAX"),
     City("phl", "KXHIGHPHIL", "Philadelphia", 39.8721, -75.2411, "America/New_York", "KPHL"),
 ]}
-
-
-@dataclass
-class StrategyConfig:
-    min_edge: float = 0.06        # required edge per contract AFTER fees (probability units)
-    min_price: float = 0.04       # skip lottery tickets
-    max_price: float = 0.94       # skip near-certain contracts (tiny upside)
-    contracts_per_trade: int = 10
-    max_trades_per_event: int = 1
-    fee_rate: float = 0.07        # Kalshi taker fee multiplier
-    prob_clip: float = 0.02       # never trust the model beyond [clip, 1-clip]
-    default_sigma: float = 2.5    # deg F, used until enough history is fitted
-    min_fit_events: int = 15
-    prob_source: str = "model"    # "model": forecast only; "blend": model + market price (see blend.py)

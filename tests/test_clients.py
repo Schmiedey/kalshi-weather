@@ -1,9 +1,6 @@
 """HTTP clients against fake responses (no network)."""
-from datetime import date
 
-from kalshi_weather.config import CITIES
 from kalshi_weather.kalshi import KalshiClient
-from kalshi_weather.weather import WeatherClient
 
 
 class Resp:
@@ -55,15 +52,6 @@ def test_candles_and_cache(tmp_path):
     assert len(s.calls) == 1   # second call served from cache
 
 
-def test_forecast_multi_model_mean():
-    s = Session(lambda u, p: Resp({"daily": {
-        "time": ["2025-10-03", "2025-10-04"],
-        "temperature_2m_max_gfs_seamless": [70.0, 60.0],
-        "temperature_2m_max_ecmwf_ifs025": [72.0, None]}}))
-    out = WeatherClient(session=s).forecast_highs(CITIES["nyc"])
-    assert out == {date(2025, 10, 3): 71.0, date(2025, 10, 4): 60.0}
-
-
 def test_settled_markets_merges_historical_endpoint():
     def h(url, p):
         if url.endswith("/historical/markets"):
@@ -73,31 +61,6 @@ def test_settled_markets_merges_historical_endpoint():
         return Resp({"markets": [{"ticker": "B", "event_ticker": "X-25OCT03"}], "cursor": ""})
     k = KalshiClient("https://x", session=Session(h), min_interval=0)
     assert sorted(m.ticker for m in k.settled_markets("X")) == ["B", "OLD"]
-
-
-def test_historical_highs_ignore_runs_after_decision():
-    # NYC day Oct 3: decision is 3pm Oct 2. previous_day1 is only usable through
-    # 7am Oct 3 (run ~7am Oct 2 + 8h latency); later hours must use previous_day2.
-    times = [f"2025-10-03T{h:02d}:00" for h in range(24)]
-    late_spike = [60] * 15 + [99] + [60] * 8          # day1 run sees a 3pm spike: future info
-    s = Session(lambda u, p: Resp({"hourly": {
-        "time": times,
-        "temperature_2m_previous_day1_gfs_seamless": late_spike,
-        "temperature_2m_previous_day2_gfs_seamless": [50 + h for h in range(24)],
-        "temperature_2m_previous_day1_ecmwf_ifs025": late_spike,
-        "temperature_2m_previous_day2_ecmwf_ifs025": [55 + h for h in range(24)]}}))
-    out = WeatherClient(session=s).historical_highs(CITIES["nyc"], date(2025, 10, 3), date(2025, 10, 3))
-    assert out == {date(2025, 10, 3): (73 + 78) / 2}
-
-
-def test_historical_highs_use_day1_for_early_hours():
-    times = [f"2025-10-03T{h:02d}:00" for h in range(24)]
-    s = Session(lambda u, p: Resp({"hourly": {
-        "time": times,
-        "temperature_2m_previous_day1_gfs_seamless": [90] * 8 + [0] * 16,
-        "temperature_2m_previous_day2_gfs_seamless": [50] * 24}}))
-    out = WeatherClient(session=s).historical_highs(CITIES["nyc"], date(2025, 10, 3), date(2025, 10, 3))
-    assert out == {date(2025, 10, 3): 90}
 
 
 def test_candles_fall_back_to_historical_endpoint(tmp_path):
