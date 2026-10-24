@@ -32,10 +32,10 @@ class BrainConfig:
     min_trades: int = 200           # settled trades before a strategy is judged
     kill_prob: float = 0.10         # stop when P(edge > 0) drops below this
     max_drawdown: float = 100.0     # stop when drawdown, in 10-contract units, passes $100
-    bankroll: float = 1000.0        # paper bankroll per strategy, for Kelly sizing
+    bankroll: float = 2000.0        # paper bankroll per strategy, for Kelly sizing
     kelly_fraction: float = 0.25
-    base_contracts: int = 10
-    max_contracts: int = 100
+    base_contracts: int = 20
+    max_contracts: int = 200
 
 
 @dataclass
